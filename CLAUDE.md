@@ -20,6 +20,12 @@
   `cd /opt/blackout && git pull && chown -R blackout:blackout /opt/blackout && systemctl restart blackout-bot`
 - Discord в РФ заблокирован → `DISCORD_PROXY=socks5h://127.0.0.1:1080` (tpws/zapret, служба `lx-discord-proxy`).
   Через тот же прокси ходят запросы к Steam API. `STEAM_API_KEY` задан.
+- Постоянное соединение с Discord через tpws «замерзает» до минуты → нажатия протухают (10062).
+  Решение: приём нажатий по HTTP (`DISCORD_PUBLIC_KEY` в .env, Interactions Endpoint URL
+  `https://lxmodschngz.ru/discord/interactions`, nginx-location на сайте LX → :3100). Если Discord не
+  достучится до РФ-сервера — переносить бота на зарубежный VPS.
+- Есть автобэкап bot.db (bot/backups, 14 шт.), RP-наказания (/punish, роли NLR/NonRP/PG/RDM/Meta/Бан),
+  карточка /profile.
 - На том же сервере: сайт LX (node :3000), бот `lx-helper` (/opt/lx-helper), PostgreSQL, nginx.
 - Сайт Blackout — отдельный хостинг IHC (130.49.173.178), SSH с телефона не пускает, с домашнего ПК работает.
 - Discord guildId: 1472216850745000099. Админ-роли бота: Гл. Администратор, Администратор,
