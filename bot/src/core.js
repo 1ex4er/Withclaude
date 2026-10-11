@@ -65,10 +65,11 @@ export async function replyError(interaction, message) {
   } catch {}
 }
 
-// Discord ждёт ответ 3 секунды. Если обработчик не успел за 2 (медленный прокси, вызовы агента,
-// личные сообщения), бот сам откладывает ответ («думает…»), а reply/update дальше идут в отложенный ответ.
-const AUTO_DEFER_MS = 1200;
-export function autoDefer(i) {
+// Discord ждёт ответ 3 секунды. Если обработчик не ответил за AUTO_DEFER_MS (медленный прокси, вызовы
+// агента, роли, личные сообщения), бот сам подтверждает взаимодействие («думает…»), а reply/update дальше
+// идут в отложенный ответ. То же, если обработчик сам вызвал deferUpdate/deferReply.
+const AUTO_DEFER_MS = 600;
+export function autoDefer(i, log) {
   const isCommand = i.isChatInputCommand?.() || i.isContextMenuCommand?.();
   const isComponent = i.isMessageComponent?.() || i.isModalSubmit?.();
   if (!isCommand && !isComponent) return () => {};
@@ -82,9 +83,22 @@ export function autoDefer(i) {
     return rest;
   };
   let deferring = null;
+  let kind = null; // 'update' | 'reply'
+  const defer = (k, opts) => {
+    if (deferring) return deferring;
+    clearTimeout(timer);
+    kind = k;
+    const t0 = Date.now();
+    deferring = (k === 'update' ? orig.deferUpdate() : orig.deferReply(opts ?? { flags: MessageFlags.Ephemeral }))
+      .then(() => {
+        const ms = Date.now() - t0;
+        if (ms > 1500) log?.warn(`подтверждение взаимодействия заняло ${ms} мс — медленная связь с Discord`);
+      })
+      .catch((e) => log?.warn(`не удалось подтвердить взаимодействие: ${e.code ?? ''} ${e.message}`));
+    return deferring;
+  };
   const timer = setTimeout(() => {
-    if (i.replied || i.deferred) return;
-    deferring = (canUpdate ? orig.deferUpdate() : orig.deferReply({ flags: MessageFlags.Ephemeral })).catch(() => {});
+    if (!i.replied && !i.deferred) defer(canUpdate ? 'update' : 'reply');
   }, AUTO_DEFER_MS);
   const settle = () => clearTimeout(timer);
 
@@ -92,7 +106,7 @@ export function autoDefer(i) {
     if (!deferring) return settle(), orig.reply(p);
     await deferring;
     // После deferUpdate новый ответ — отдельным сообщением, чтобы не затереть панель с кнопками.
-    return canUpdate ? i.followUp({ ...p, flags: MessageFlags.Ephemeral }) : i.editReply(strip(p));
+    return kind === 'update' ? i.followUp({ ...p, flags: MessageFlags.Ephemeral }) : i.editReply(strip(p));
   };
   if (orig.update) {
     i.update = async (p) => {
@@ -101,8 +115,8 @@ export function autoDefer(i) {
       return i.editReply(strip(p));
     };
   }
-  i.deferReply = async (opts) => (deferring ? deferring : (settle(), orig.deferReply(opts)));
-  if (orig.deferUpdate) i.deferUpdate = async () => (deferring ? deferring : (settle(), orig.deferUpdate()));
+  i.deferReply = (opts) => defer('reply', opts);
+  if (orig.deferUpdate) i.deferUpdate = () => defer('update');
   const showModal = i.showModal?.bind(i);
   if (showModal) i.showModal = (m) => (settle(), showModal(m));
   return settle;
@@ -120,7 +134,7 @@ export function createRouter(modules, ctx) {
     // Диагностика: насколько поздно событие дошло до бота (если больше ~2.5 с — Discord уже не примет ответ).
     const lag = Date.now() - interaction.createdTimestamp;
     if (lag > 1500) ctx.log.warn(`взаимодействие ${interaction.commandName ?? interaction.customId} дошло с опозданием ${lag} мс (ping ${ctx.client.ws.ping} мс)`);
-    const settle = autoDefer(interaction);
+    const settle = autoDefer(interaction, ctx.log);
     try {
       if (interaction.isAutocomplete()) {
         await byCommand.get(interaction.commandName)?.onAutocomplete?.(interaction, ctx);

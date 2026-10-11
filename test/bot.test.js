@@ -317,11 +317,33 @@ test('верификация с одобрением: заявка → моде�
 
   const mod = { roles: { cache: new Set(['M']) } };
   const guild = { members: { fetch: async () => member } };
-  const decision = { message: { embeds: [] }, user: { id: '222222222222222222', tag: 'mod' }, member: mod, guild, update: async (p) => (updated = p) };
+  const { autoDefer } = await import('../bot/src/core.js');
+  const button = (who) => {
+    const i = {
+      message: { embeds: [] },
+      user: { id: '222222222222222222', tag: 'mod' },
+      member: who,
+      guild,
+      replied: false,
+      deferred: false,
+      isChatInputCommand: () => false,
+      isContextMenuCommand: () => false,
+      isMessageComponent: () => true,
+      isModalSubmit: () => false,
+      reply: async () => {},
+      update: async (p) => (updated = p),
+      deferReply: async () => {},
+      deferUpdate: async () => (i.deferred = true),
+      editReply: async (p) => (updated = p),
+    };
+    autoDefer(i);
+    return i;
+  };
+  const decision = button(mod);
   await verify.onComponent(decision, ctx, ['approve', member.id]);
   assert.ok(roles.has('V'));
   assert.equal(updated.components[0].components[0].data.disabled, true);
-  await assert.rejects(verify.onComponent(decision, ctx, ['approve', member.id]), /уже рассмотрена/);
-  await assert.rejects(verify.onComponent({ ...decision, member: { roles: { cache: new Set() } } }, ctx, ['approve', member.id]), /нет прав|рассмотрена/);
+  await assert.rejects(verify.onComponent(button(mod), ctx, ['approve', member.id]), /уже рассмотрена/);
+  await assert.rejects(verify.onComponent(button({ roles: { cache: new Set() } }), ctx, ['approve', member.id]), /нет прав/);
   void posted;
 });

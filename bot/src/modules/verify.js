@@ -163,6 +163,7 @@ export default {
 
       delete pending[userId];
       pendingSet(ctx, pending);
+      await i.deferUpdate();
       const member = await i.guild.members.fetch(userId).catch(() => null);
       let decision;
       if (action === 'approve') {

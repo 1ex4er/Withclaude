@@ -134,6 +134,8 @@ export default {
     const decide = ctx.db.prepare(
       "UPDATE applications SET status = ?, reviewer_id = ?, reason = ?, decided_at = ? WHERE id = ? AND status = 'pending'",
     );
+    // Сразу подтверждаем нажатие: дальше роли, вайтлист и сообщения — это несколько запросов к Discord.
+    await i.deferUpdate();
     const member = await i.guild.members.fetch(app.discord_id).catch(() => null);
 
     if (action === 'accept') {
