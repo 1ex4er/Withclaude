@@ -49,7 +49,7 @@ const DEFAULTS = {
   whitelist: { root: 'server', path: 'whitelist.txt' },
   // Внешние базы банов (HunterEye и т.п.), см. bot/src/bancheck.js. Steam проверяется при STEAM_API_KEY в .env.
   banCheck: { providers: [], alertOnLink: true },
-  verify: { minAccountAgeDays: 3 },
+  verify: { minAccountAgeDays: 3, askSteam: true },
   automod: {
     exemptRoles: [],
     spam: { messages: 6, seconds: 8 },

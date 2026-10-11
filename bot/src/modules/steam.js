@@ -1,11 +1,54 @@
 // Привязка Steam к Discord и управление вайтлистом.
 
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  MessageFlags,
+  ModalBuilder,
+  PermissionFlagsBits,
+  SlashCommandBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+} from 'discord.js';
 import { banFields, checkAll, hasBans } from '../bancheck.js';
 import { BotError } from '../core.js';
+import { resolveSteamInput } from '../steamid.js';
 import { LEVEL, embed } from '../util.js';
 
 const profile = (steamId) => `https://steamcommunity.com/profiles/${steamId}`;
+export const steamLabel = (link) =>
+  link ? `[${link.steam_id}](${profile(link.steam_id)})${link.method === 'manual' ? ' · указан вручную, не подтверждён' : ' · подтверждён через Steam'}` : 'не привязан';
+
+// Окно «впиши свой Steam» — используется и в верификации, и в /steam.
+export function steamModal(customId) {
+  return new ModalBuilder()
+    .setCustomId(customId)
+    .setTitle('Твой Steam')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('steam')
+          .setLabel('Ссылка на профиль Steam или SteamID64')
+          .setPlaceholder('https://steamcommunity.com/profiles/7656119…')
+          .setStyle(TextInputStyle.Short)
+          .setMinLength(2)
+          .setMaxLength(120)
+          .setRequired(true),
+      ),
+    );
+}
+
+// Привязка по введённому тексту. Возвращает { ok, steamId } или { ok: false, message }.
+export async function linkManual(ctx, member, text) {
+  const r = await resolveSteamInput(text);
+  if (r.error) return { ok: false, message: r.error };
+  const res = ctx.links.setManual(member.id, r.steamId);
+  if (!res.ok) return res;
+  // Роли, журнал, проверка банов — в фоне, чтобы ответить игроку быстро.
+  ctx.emitLinked?.(member.id, r.steamId, res.previous, 'manual').catch((e) => ctx.log.warn(`после привязки: ${e.message}`));
+  return { ok: true, steamId: r.steamId };
+}
 
 const steamCmd = new SlashCommandBuilder().setName('steam').setDescription('Привязать свой Steam-аккаунт');
 
@@ -68,7 +111,7 @@ export default {
 
   init(ctx) {
     // Вызывается HTTP-частью после успешного входа через Steam.
-    ctx.emitLinked = async (discordId, steamId, previous) => {
+    ctx.emitLinked = async (discordId, steamId, previous, method = 'openid') => {
       const guild = ctx.guild();
       const member = await guild?.members.fetch(discordId).catch(() => null);
       if (!member) return;
@@ -78,7 +121,11 @@ export default {
         if (previous && previous !== steamId) await ctx.whitelist.change('remove', previous);
         await ctx.whitelist.change('add', steamId, member.user.tag);
       }
-      ctx.audit('🔗 Привязан Steam', { Участник: `<@${discordId}>`, Steam: `[${steamId}](${profile(steamId)})` });
+      ctx.audit('🔗 Привязан Steam', {
+        Участник: `<@${discordId}>`,
+        Steam: `[${steamId}](${profile(steamId)})`,
+        Способ: method === 'manual' ? 'указан вручную (не подтверждён)' : 'вход через Steam',
+      });
       if (ctx.cfg.banCheck.alertOnLink) {
         const results = await checkAll(ctx.cfg, steamId);
         if (hasBans(results)) {
@@ -86,8 +133,17 @@ export default {
           ctx.post('modLog', { embeds: [e] });
         }
       }
-      member.send({ embeds: [embed('ok', 'Steam привязан', `Аккаунт [${steamId}](${profile(steamId)}) привязан к Discord.`)] }).catch(() => {});
+      if (method !== 'manual') member.send({ embeds: [embed('ok', 'Steam привязан', `Аккаунт [${steamId}](${profile(steamId)}) привязан к Discord.`)] }).catch(() => {});
     };
+  },
+
+  async onComponent(i, ctx, [action]) {
+    if (action === 'manual') return i.showModal(steamModal('steam:manualSubmit'));
+    if (action === 'manualSubmit') {
+      const r = await linkManual(ctx, i.member, i.fields.getTextInputValue('steam'));
+      if (!r.ok) throw new BotError(r.message);
+      return i.reply({ embeds: [embed('ok', null, `✅ Steam сохранён: [${r.steamId}](${profile(r.steamId)})`)], flags: MessageFlags.Ephemeral });
+    }
   },
 
   async onCommand(i, ctx) {
@@ -95,12 +151,15 @@ export default {
       const link = ctx.links.get(i.user.id);
       const token = ctx.links.createToken(i.user.id);
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(link ? 'Привязать другой Steam' : 'Войти через Steam').setURL(`${ctx.cfg.publicUrl}/link/steam/start?t=${token}`),
+        new ButtonBuilder().setCustomId('steam:manual').setLabel('Вписать SteamID').setEmoji('✏️').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Войти через Steam').setURL(`${ctx.cfg.publicUrl}/link/steam/start?t=${token}`),
       );
-      const text = link
-        ? `Сейчас привязан: [${link.steam_id}](${profile(link.steam_id)})`
-        : 'Нажми кнопку и войди через Steam на официальном сайте Steam. Пароль мы не видим.';
-      return i.reply({ embeds: [embed('info', 'Привязка Steam', `${text}\nСсылка действует 15 минут.`)], components: [row], flags: MessageFlags.Ephemeral });
+      const text = link ? `Сейчас: ${steamLabel(link)}` : 'Steam не привязан.';
+      return i.reply({
+        embeds: [embed('info', 'Привязка Steam', `${text}\n\n**Вписать SteamID** — быстро, просто вставь ссылку на профиль.\n**Войти через Steam** — подтверждает, что аккаунт твой (пароль мы не видим).`)],
+        components: [row],
+        flags: MessageFlags.Ephemeral,
+      });
     }
 
     ctx.require(i, LEVEL.moderator);
@@ -127,7 +186,7 @@ export default {
       return i.reply({
         embeds: [
           embed('info', user.tag).addFields(
-            { name: 'Steam', value: link ? `[${link.steam_id}](${profile(link.steam_id)})` : 'не привязан', inline: true },
+            { name: 'Steam', value: steamLabel(link), inline: true },
             { name: 'Вайтлист', value: wl ? 'да' : 'нет', inline: true },
           ),
         ],

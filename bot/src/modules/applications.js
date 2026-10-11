@@ -13,7 +13,7 @@ import {
 import { banFields, checkAll, hasBans } from '../bancheck.js';
 import { BotError } from '../core.js';
 import { LEVEL, embed, ts } from '../util.js';
-import { addToWhitelist } from './steam.js';
+import { addToWhitelist, steamLabel } from './steam.js';
 
 const QUESTIONS = [
   { id: 'name', label: 'Имя, фамилия, позывной персонажа', style: TextInputStyle.Short, min: 3, max: 80 },
@@ -29,7 +29,7 @@ export function applicationPanel() {
       embed(
         'info',
         '📝 Анкета персонажа',
-        'Чтобы попасть на сервер, заполни анкету персонажа. Сначала привяжи Steam командой `/steam`.\n\n' +
+        'Чтобы попасть на сервер, заполни анкету персонажа.\n\n' +
           'Пиши от лица персонажа, без «я играю за…». Биография — не меньше 300 символов. Анкету рассмотрят модераторы, ответ придёт в личные сообщения.',
       ),
     ],
@@ -59,7 +59,13 @@ export default {
     };
 
     if (action === 'open') {
-      if (cfg.requireSteam && !ctx.links.get(i.user.id)) throw new BotError('Сначала привяжи Steam командой /steam');
+      if (cfg.requireSteam && !ctx.links.get(i.user.id)) {
+        return i.reply({
+          embeds: [embed('warn', null, 'Сначала укажи свой Steam — нажми кнопку ниже, затем снова «Подать анкету».')],
+          components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('steam:manual').setLabel('Вписать SteamID').setEmoji('✏️').setStyle(ButtonStyle.Primary))],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       if (ctx.cfg.roles.whitelisted && i.member.roles.cache.has(ctx.cfg.roles.whitelisted)) throw new BotError('Ты уже в вайтлисте');
       const last = q.last.get(i.user.id);
       if (last?.status === 'pending') throw new BotError('Твоя анкета уже на рассмотрении');
@@ -91,7 +97,7 @@ export default {
         .addFields(
           { name: 'Участник', value: `<@${i.user.id}>`, inline: true },
           { name: 'Аккаунт создан', value: ts(i.user.createdTimestamp), inline: true },
-          { name: 'Steam', value: link ? `[${link.steam_id}](https://steamcommunity.com/profiles/${link.steam_id})` : 'не привязан', inline: true },
+          { name: 'Steam', value: steamLabel(link), inline: true },
         );
       for (const qn of QUESTIONS) e.addFields({ name: qn.label, value: answers[qn.id].slice(0, 1024) });
       await i.deferReply({ flags: MessageFlags.Ephemeral });

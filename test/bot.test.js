@@ -253,3 +253,29 @@ test('медленная кнопка: update идёт в исходное со�
   await b.i.reply({ content: 'роль выдана' });
   assert.deepEqual(b.calls.map((c) => c[0]), ['deferUpdate', 'followUp']);
 });
+
+test('SteamID из текста: ссылки, SteamID64, STEAM_0, [U:1], короткие ссылки', async () => {
+  const { parseSteamInput, resolveSteamInput } = await import('../bot/src/steamid.js');
+  assert.deepEqual(parseSteamInput('76561198000000001'), { steamId: '76561198000000001' });
+  assert.deepEqual(parseSteamInput(' https://steamcommunity.com/profiles/76561198000000001/ '), { steamId: '76561198000000001' });
+  assert.deepEqual(parseSteamInput('STEAM_0:1:19867136'), { steamId: '76561198000000001' });
+  assert.deepEqual(parseSteamInput('[U:1:39734273]'), { steamId: '76561198000000001' });
+  assert.deepEqual(parseSteamInput('https://steamcommunity.com/id/gaben'), { vanity: 'gaben' });
+  assert.ok(parseSteamInput('12345').error);
+  const fakeFetch = async () => ({ json: async () => ({ response: { success: 1, steamid: '76561197960287930' } }) });
+  assert.deepEqual(await resolveSteamInput('steamcommunity.com/id/gaben', { apiKey: 'k', fetchImpl: fakeFetch }), { steamId: '76561197960287930' });
+  assert.ok((await resolveSteamInput('gaben', { apiKey: '' })).error);
+});
+
+test('ручная привязка Steam не перебивает чужой и подтверждённый Steam', () => {
+  const links = new Links(openDb(':memory:'));
+  assert.equal(links.setManual('1', STEAM).ok, true);
+  assert.equal(links.get('1').method, 'manual');
+  assert.equal(links.setManual('2', STEAM).ok, false);
+  links.complete(links.createToken('3'), '76561198000000003');
+  assert.equal(links.setManual('3', '76561198000000004').ok, false);
+  assert.equal(links.get('3').method, 'openid');
+  // Вход через Steam поверх ручной привязки — становится подтверждённым.
+  links.complete(links.createToken('1'), STEAM);
+  assert.equal(links.get('1').method, 'openid');
+});

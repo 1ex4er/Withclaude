@@ -14,7 +14,7 @@ export class Links {
       byDiscord: db.prepare('SELECT * FROM links WHERE discord_id = ?'),
       bySteam: db.prepare('SELECT * FROM links WHERE steam_id = ?'),
       upsert: db.prepare(
-        'INSERT INTO links (discord_id, steam_id, linked_at) VALUES (?, ?, ?) ON CONFLICT(discord_id) DO UPDATE SET steam_id = excluded.steam_id, linked_at = excluded.linked_at',
+        'INSERT INTO links (discord_id, steam_id, linked_at, method) VALUES (?, ?, ?, ?) ON CONFLICT(discord_id) DO UPDATE SET steam_id = excluded.steam_id, linked_at = excluded.linked_at, method = excluded.method',
       ),
       remove: db.prepare('DELETE FROM links WHERE discord_id = ?'),
     };
@@ -41,10 +41,25 @@ export class Links {
     }
     const previous = this.q.byDiscord.get(discordId)?.steam_id ?? null;
     this.db.transaction(() => {
-      this.q.upsert.run(discordId, steamId, now);
+      this.q.upsert.run(discordId, steamId, now, 'openid');
       this.q.deleteToken.run(token, now);
     })();
     return { ok: true, discordId, steamId, previous };
+  }
+
+  // SteamID вписан игроком вручную — владение не подтверждено.
+  setManual(discordId, steamId, now = Date.now()) {
+    const other = this.q.bySteam.get(steamId);
+    if (other && other.discord_id !== discordId) {
+      return { ok: false, message: 'Этот Steam уже привязан к другому участнику. Если это твой аккаунт — создай тикет.' };
+    }
+    const current = this.q.byDiscord.get(discordId);
+    // Подтверждённый через Steam аккаунт вручную не перезаписываем.
+    if (current?.method === 'openid' && current.steam_id !== steamId) {
+      return { ok: false, message: 'У тебя уже привязан Steam через вход Steam. Сменить его можно через /steam.' };
+    }
+    this.q.upsert.run(discordId, steamId, now, current?.method === 'openid' ? 'openid' : 'manual');
+    return { ok: true, discordId, steamId, previous: current?.steam_id ?? null };
   }
 
   get(discordId) {

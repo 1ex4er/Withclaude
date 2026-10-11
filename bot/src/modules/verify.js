@@ -4,6 +4,7 @@
 import crypto from 'node:crypto';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Events, MessageFlags } from 'discord.js';
 import { BotError } from '../core.js';
+import { linkManual, steamModal } from './steam.js';
 import { embed, ts } from '../util.js';
 
 const CHOICES = [
@@ -22,7 +23,7 @@ export function verifyPanel() {
       embed(
         'info',
         '☢️ Вход в Зону',
-        'Прочитай правила сервера. Нажимая кнопку, ты подтверждаешь, что согласен с ними и получаешь доступ к каналам.',
+        'Прочитай правила сервера. Нажимая кнопку, ты подтверждаешь, что согласен с ними. Затем впиши свой Steam — и получишь доступ к каналам.',
       ),
     ],
     components: [
@@ -41,6 +42,12 @@ function shuffle(a) {
   return a;
 }
 
+async function finish(i, ctx) {
+  const { verified, unverified } = ctx.cfg.roles;
+  await i.member.roles.add(verified, 'Верификация');
+  if (unverified) await i.member.roles.remove(unverified, 'Верификация').catch(() => {});
+}
+
 export default {
   name: 'verify',
 
@@ -54,7 +61,7 @@ export default {
   },
 
   async onComponent(i, ctx, [action, token, choice]) {
-    const { verified, unverified } = ctx.cfg.roles;
+    const { verified } = ctx.cfg.roles;
     if (!verified) throw new BotError('Роль verified не настроена');
 
     if (action === 'start') {
@@ -86,9 +93,21 @@ export default {
       if (c.options[Number(choice)] !== c.answer) {
         return i.update({ embeds: [embed('bad', null, 'Неверно. Нажми кнопку на панели ещё раз.')], components: [] });
       }
-      await i.member.roles.add(verified, 'Верификация');
-      if (unverified) await i.member.roles.remove(unverified, 'Верификация').catch(() => {});
-      return i.update({ embeds: [embed('ok', null, '✅ Добро пожаловать! Для игры на сервере привяжи Steam (`/steam`) и подай анкету.')], components: [] });
+      // Дальше — вписать свой Steam (если включено), потом роль.
+      if (ctx.cfg.verify.askSteam !== false && !ctx.links.get(i.user.id)) return i.showModal(steamModal('verify:steam'));
+      await finish(i, ctx);
+      return i.update({ embeds: [embed('ok', null, '✅ Добро пожаловать! Теперь можно подать анкету.')], components: [] });
+    }
+
+    if (action === 'steam') {
+      const r = await linkManual(ctx, i.member, i.fields.getTextInputValue('steam'));
+      if (!r.ok) {
+        // Окно можно открыть снова — кнопкой «Я прочитал правила».
+        throw new BotError(`${r.message}\nНажми «Я прочитал правила» ещё раз.`);
+      }
+      await finish(i, ctx);
+      const done = embed('ok', null, `✅ Добро пожаловать! Steam сохранён: \`${r.steamId}\`. Теперь можно подать анкету.`);
+      return i.isFromMessage() ? i.update({ embeds: [done], components: [] }) : i.reply({ embeds: [done], flags: MessageFlags.Ephemeral });
     }
   },
 };

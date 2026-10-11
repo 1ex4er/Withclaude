@@ -54,6 +54,10 @@ export function openDb(file) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  // Миграция: способ привязки Steam — 'openid' (вход через Steam) или 'manual' (вписан вручную).
+  try {
+    db.exec("ALTER TABLE links ADD COLUMN method TEXT NOT NULL DEFAULT 'openid'");
+  } catch {}
 
   db.transaction =
     (fn) =>
