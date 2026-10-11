@@ -347,3 +347,69 @@ test('верификация с одобрением: заявка → моде�
   await assert.rejects(verify.onComponent(button({ roles: { cache: new Set() } }), ctx, ['approve', member.id]), /нет прав/);
   void posted;
 });
+
+test('бэкап базы: файл создаётся, старые удаляются', async () => {
+  const { makeBackup, listBackups } = await import('../bot/src/backup.js');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bot-backup-'));
+  const db = openDb(':memory:');
+  db.kv.set('x', 1);
+  for (let n = 0; n < 4; n++) makeBackup(db, dir, 3, new Date(Date.UTC(2026, 0, 1, 0, 0, n)));
+  const files = listBackups(dir);
+  assert.equal(files.length, 3);
+  assert.equal(files[0].file, 'bot-2026-01-01_00-00-01.db');
+  const restored = openDb(path.join(dir, files.at(-1).file));
+  assert.equal(restored.kv.get('x'), 1);
+});
+
+test('RP-наказание: выдаётся роль, повтор заменяет, по сроку снимается', async () => {
+  const mod = (await import('../bot/src/modules/punishments.js')).default;
+  const db = openDb(':memory:');
+  const roles = new Set();
+  const target = {
+    id: '333333333333333333',
+    manageable: true,
+    roles: { highest: { position: 1 }, cache: roles, add: async (r) => roles.add(r), remove: async (r) => roles.delete(r) },
+    send: async () => {},
+  };
+  const audits = [];
+  const ctx = {
+    db,
+    cfg: { punishments: { roles: { nonrp: 'R_NONRP' } } },
+    log: { warn() {} },
+    guild: () => ({ members: { fetch: async () => target } }),
+    audit: async (t) => audits.push(t),
+    require() {},
+  };
+  const replies = [];
+  const cmd = (name, opts) => ({
+    commandName: name,
+    user: { id: '444444444444444444', tag: 'mod' },
+    member: { id: '444444444444444444', roles: { highest: { position: 10 } } },
+    client: { user: { id: 'bot' } },
+    guild: { ownerId: 'owner', members: { fetch: async () => target } },
+    options: {
+      getUser: () => ({ id: target.id, tag: 'player' }),
+      getMember: () => target,
+      getString: (k) => opts[k] ?? null,
+    },
+    deferReply: async () => {},
+    editReply: async (p) => replies.push(p),
+    reply: async (p) => replies.push(p),
+  });
+  await mod.onCommand(cmd('punish', { type: 'nonrp', reason: 'RDM на базе', duration: '1h' }), ctx);
+  assert.ok(roles.has('R_NONRP'));
+  await mod.onCommand(cmd('punish', { type: 'nonrp', reason: 'повтор', duration: '2h' }), ctx);
+  const active = db.prepare('SELECT * FROM punishments WHERE removed_at IS NULL').all();
+  assert.equal(active.length, 1);
+  assert.equal(active[0].reason, 'повтор');
+  await assert.rejects(mod.onCommand(cmd('punish', { type: 'meta', reason: 'x' }), ctx), /не выбрана/);
+  // Срок истёк → init-тик снимает роль.
+  db.prepare('UPDATE punishments SET expires_at = ? WHERE removed_at IS NULL').run(Date.now() - 1000);
+  mod.init(ctx);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.ok(!roles.has('R_NONRP'));
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM punishments WHERE removed_by = ?').get('auto').n, 1);
+});

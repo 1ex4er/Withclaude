@@ -13,6 +13,7 @@ import {
   RoleSelectMenuBuilder,
   SlashCommandBuilder,
 } from 'discord.js';
+import { listBackups, makeBackup } from '../backup.js';
 import { BotError } from '../core.js';
 import { getPath, saveSetting } from '../settings.js';
 import { LEVEL, clip, embed } from '../util.js';
@@ -29,6 +30,12 @@ const ROLE_SLOTS = [
   { path: 'applications.acceptRoles', label: 'Выдаются при принятии анкеты', multi: true },
   { path: 'applications.removeRoles', label: 'Снимаются при принятии анкеты', multi: true },
   { path: 'selfRoles', label: 'Панель ролей (игроки берут сами)', multi: true, self: true },
+  { path: 'punishments.roles.nlr', label: 'Наказание: NLR' },
+  { path: 'punishments.roles.nonrp', label: 'Наказание: NonRP' },
+  { path: 'punishments.roles.pg', label: 'Наказание: PG' },
+  { path: 'punishments.roles.rdm', label: 'Наказание: RDM' },
+  { path: 'punishments.roles.meta', label: 'Наказание: Meta' },
+  { path: 'punishments.roles.ban', label: 'Наказание: Бан' },
 ];
 
 const TEXT = [ChannelType.GuildText, ChannelType.GuildAnnouncement];
@@ -106,7 +113,8 @@ export default {
       .addSubcommand((s) => s.setName('roles').setDescription('Выбрать роли'))
       .addSubcommand((s) => s.setName('channels').setDescription('Выбрать каналы'))
       .addSubcommand((s) => s.setName('show').setDescription('Текущие настройки'))
-      .addSubcommand((s) => s.setName('roles-list').setDescription('Выгрузить все роли сервера с ID')),
+      .addSubcommand((s) => s.setName('roles-list').setDescription('Выгрузить все роли сервера с ID'))
+      .addSubcommand((s) => s.setName('backup').setDescription('Сделать бэкап базы бота сейчас')),
   ],
 
   async onCommand(i, ctx) {
@@ -125,6 +133,15 @@ export default {
       return;
     }
     if (sub === 'show') return i.reply({ embeds: describe(ctx), flags: ephemeral });
+
+    if (sub === 'backup') {
+      const b = makeBackup(ctx.db, ctx.cfg.backup.dir, ctx.cfg.backup.keep);
+      const all = listBackups(ctx.cfg.backup.dir);
+      return i.reply({
+        embeds: [embed('ok', '💾 Бэкап сделан', `\`${b.file}\` · ${Math.round(b.size / 1024)} КБ\nВсего бэкапов: ${all.length} (хранятся последние ${ctx.cfg.backup.keep}, автоматически раз в сутки)`)],
+        flags: ephemeral,
+      });
+    }
 
     if (sub === 'roles-list') {
       // Текстом, а не файлом: файлы с CDN Discord у части игроков не открываются.

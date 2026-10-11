@@ -51,6 +51,9 @@ const DEFAULTS = {
   // Внешние базы банов (HunterEye и т.п.), см. bot/src/bancheck.js. Steam проверяется при STEAM_API_KEY в .env.
   banCheck: { providers: [], alertOnLink: true },
   verify: { minAccountAgeDays: 3, askSteam: true, manualApproval: false },
+  // RP-наказания: роль на каждый тип (выбираются в /setup roles).
+  punishments: { roles: { nlr: '', nonrp: '', pg: '', rdm: '', meta: '', ban: '' } },
+  backup: { keep: 14, intervalHours: 24 },
   automod: {
     exemptRoles: [],
     spam: { messages: 6, seconds: 8 },
@@ -90,6 +93,7 @@ export function loadConfig(file) {
   cfg.agent.agentPublicKey = path.resolve(baseDir, cfg.agent.agentPublicKey);
   cfg.dbFile = path.resolve(baseDir, raw.dbFile ?? 'bot.db');
   cfg.transcriptsDir = path.resolve(baseDir, raw.transcriptsDir ?? 'transcripts');
+  cfg.backup.dir = path.resolve(baseDir, raw.backup?.dir ?? 'backups');
   cfg.secrets = {
     discordToken: process.env.DISCORD_TOKEN,
     apiToken: process.env.API_TOKEN || null,

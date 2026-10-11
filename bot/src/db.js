@@ -48,6 +48,21 @@ CREATE TABLE IF NOT EXISTS warns (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS warns_user ON warns(discord_id);
+
+CREATE TABLE IF NOT EXISTS punishments (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  discord_id TEXT NOT NULL,
+  type       TEXT NOT NULL,
+  role_id    TEXT NOT NULL,
+  mod_id     TEXT NOT NULL,
+  reason     TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER,
+  removed_at INTEGER,
+  removed_by TEXT
+);
+CREATE INDEX IF NOT EXISTS punishments_user ON punishments(discord_id);
+CREATE INDEX IF NOT EXISTS punishments_active ON punishments(removed_at, expires_at);
 `;
 
 export function openDb(file) {

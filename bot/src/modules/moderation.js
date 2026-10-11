@@ -66,7 +66,7 @@ const commands = [
 ];
 
 // Нельзя наказать того, кто выше или равен по ролям, и самого бота/владельца.
-function assertCanModerate(i, target) {
+export function assertCanModerate(i, target) {
   if (!target) throw new BotError('Участник не на сервере');
   if (target.id === i.guild.ownerId) throw new BotError('Нельзя наказать владельца сервера');
   if (target.id === i.client.user.id) throw new BotError('Нельзя наказать бота');
