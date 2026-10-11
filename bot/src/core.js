@@ -67,7 +67,7 @@ export async function replyError(interaction, message) {
 
 // Discord ждёт ответ 3 секунды. Если обработчик не успел за 2 (медленный прокси, вызовы агента,
 // личные сообщения), бот сам откладывает ответ («думает…»), а reply/update дальше идут в отложенный ответ.
-const AUTO_DEFER_MS = 2000;
+const AUTO_DEFER_MS = 1200;
 export function autoDefer(i) {
   const isCommand = i.isChatInputCommand?.() || i.isContextMenuCommand?.();
   const isComponent = i.isMessageComponent?.() || i.isModalSubmit?.();

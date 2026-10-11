@@ -123,7 +123,9 @@ export default {
     const name = i.commandName;
     const reason = i.options.getString('reason') ?? 'Без причины';
     const user = i.options.getUser('user');
-    const target = user ? await i.guild.members.fetch(user.id).catch(() => null) : null;
+    // Участника подгружаем только для наказаний: каждый запрос к Discord через прокси — это время.
+    const needsMember = ['warn', 'mute', 'unmute', 'kick', 'ban'].includes(name);
+    const target = user && needsMember ? (i.options.getMember('user') ?? (await i.guild.members.fetch(user.id).catch(() => null))) : null;
     const reply = (text, color = 'ok') => i.reply({ embeds: [embed(color, null, text)], flags: MessageFlags.Ephemeral });
 
     if (name === 'warns') {
