@@ -37,6 +37,7 @@ export class FileManager {
       throw new AgentError('denied', `Разрешены только: ${this.cfg.extensions.join(', ')}`);
     }
 
+    if (!fs.existsSync(root)) throw new AgentError('not_found', `Папка ${rootName} не найдена на сервере`);
     const realRoot = fs.realpathSync(root);
     const exists = fs.existsSync(abs);
     if (!exists && mustExist) throw new AgentError('not_found', 'Файл не найден');

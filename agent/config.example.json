@@ -1,12 +1,19 @@
 {
-  "agentId": "blackout-main",
-  "hubUrl": "wss://blackoutstalkerrp.ru/agent-ws",
-  "tlsPinSha256": "",
-
-  "keys": {
-    "agentPrivateKey": "../keys/agent_private.pem",
-    "sitePublicKey": "../keys/site_public.pem"
-  },
+  "hubs": [
+    {
+      "name": "blackout",
+      "url": "wss://blackoutstalkerrp.ru/agent-ws",
+      "agentId": "blackout-main",
+      "sitePublicKey": "keys/site_public.pem",
+      "allow": ["*"]
+    },
+    {
+      "name": "lx",
+      "url": "wss://lxmodschngz.ru/agent-ws",
+      "license": "LX-XXXX-XXXX-XXXX",
+      "allow": ["agent.info", "server.status", "lx.*"]
+    }
+  ],
 
   "server": {
     "dir": "C:\\DayZServer",
@@ -29,8 +36,6 @@
   },
 
   "rcon": {
-    "host": "127.0.0.1",
-    "port": 2306,
     "allowRaw": false
   },
 
@@ -40,23 +45,18 @@
       "mission": "C:\\DayZServer\\mpmissions\\dayzOffline.chernarusplus",
       "profiles": "C:\\DayZServer\\profiles"
     },
-    "extensions": [".cfg", ".xml", ".json", ".txt"],
-    "deny": ["beserver", "battleye", "keys", ".exe", ".dll", ".bikey"],
-    "maskedCfgKeys": ["passwordAdmin"],
     "maxSizeMb": 10,
-    "backupDir": "C:\\DayZAgent\\backups",
     "keepBackups": 50
   },
 
-  "logs": {
-    "dir": "C:\\DayZServer\\profiles",
-    "extensions": [".rpt", ".adm", ".log"]
+  "lx": {
+    "modPrefix": "@LX",
+    "roots": {
+      "lx": "C:\\DayZServer\\profiles\\LX"
+    }
   },
 
   "steamcmd": {
     "path": "C:\\steamcmd\\steamcmd.exe"
-  },
-
-  "stateFile": "./state.json",
-  "auditLog": "./audit.log"
+  }
 }

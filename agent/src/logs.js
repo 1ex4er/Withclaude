@@ -11,7 +11,7 @@ export class LogManager {
     this.dir = cfg.dir;
     this.extensions = cfg.extensions.map((e) => e.toLowerCase());
     this.emit = emit;
-    this.followers = new Map(); // file -> { offset, timer }
+    this.followers = new Map(); // "сайт\0файл" -> { offset, rest, timer }
   }
 
   #resolve(file) {
@@ -53,34 +53,40 @@ export class LogManager {
     return { file, size, lines: all.slice(-lines) };
   }
 
-  // Новые строки уходят событием { topic: 'log', data: { file, lines } }.
-  follow(file) {
+  // Новые строки уходят запросившему сайту событием { topic: 'log', data: { file, lines } }.
+  follow(file, hub) {
     const abs = this.#resolve(file);
-    if (this.followers.has(file)) return { following: true };
-    if (this.followers.size >= 5) throw new AgentError('limit', 'Не больше 5 логов одновременно');
+    const key = `${hub}\0${file}`;
+    if (this.followers.has(key)) return { following: true };
+    if (this.followers.size >= 10) throw new AgentError('limit', 'Слишком много логов одновременно');
     const f = { offset: fs.statSync(abs).size, rest: '' };
-    f.timer = setInterval(() => this.#poll(file, abs, f), 1000);
-    this.followers.set(file, f);
+    f.timer = setInterval(() => this.#poll(hub, file, abs, f), 1000);
+    this.followers.set(key, f);
     return { following: true };
   }
 
-  unfollow(file) {
-    const f = this.followers.get(file);
+  unfollow(file, hub) {
+    const key = `${hub}\0${file}`;
+    const f = this.followers.get(key);
     if (f) clearInterval(f.timer);
-    this.followers.delete(file);
+    this.followers.delete(key);
     return { following: false };
   }
 
-  unfollowAll() {
-    for (const file of [...this.followers.keys()]) this.unfollow(file);
+  // Без hub — отписать всех.
+  unfollowAll(hub) {
+    for (const key of [...this.followers.keys()]) {
+      const [h, file] = key.split('\0');
+      if (hub === undefined || h === hub) this.unfollow(file, h);
+    }
   }
 
-  #poll(file, abs, f) {
+  #poll(hub, file, abs, f) {
     let size;
     try {
       size = fs.statSync(abs).size;
     } catch {
-      return this.unfollow(file);
+      return this.unfollow(file, hub);
     }
     if (size < f.offset) f.offset = 0; // файл пересоздан
     if (size === f.offset) return;
@@ -95,6 +101,6 @@ export class LogManager {
     f.offset += len;
     const parts = (f.rest + buf.toString('utf8')).split(/\r?\n/);
     f.rest = parts.pop();
-    if (parts.length) this.emit('log', { file, lines: parts });
+    if (parts.length) this.emit(hub, 'log', { file, lines: parts });
   }
 }

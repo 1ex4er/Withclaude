@@ -1,0 +1,62 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  exe:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:exe
+
+      # Проверка готового .exe на настоящей Windows: запуск, ключ через DPAPI, автозапуск.
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = "$env:RUNNER_TEMP\lx"
+          New-Item -ItemType Directory -Force "$dir\srv" | Out-Null
+          Copy-Item dist\lx-agent.exe $dir
+          & "$dir\lx-agent.exe" version
+          if ($LASTEXITCODE) { throw 'version' }
+          & "$dir\lx-agent.exe" init --server-dir "$dir\srv" --license LX-CI-TEST-0001
+          if ($LASTEXITCODE) { throw 'init' }
+          $key = Get-Content "$dir\keys\agent.key" | ConvertFrom-Json
+          if ($key.format -ne 'dpapi') { throw "ключ не зашифрован DPAPI: $($key.format)" }
+          & "$dir\lx-agent.exe" pubkey
+          if ($LASTEXITCODE) { throw 'pubkey (расшифровка DPAPI)' }
+          & "$dir\lx-agent.exe" install
+          if ($LASTEXITCODE) { throw 'install' }
+          schtasks /Query /TN "LX Agent"
+          if ($LASTEXITCODE) { throw 'задача не создана' }
+          & "$dir\lx-agent.exe" uninstall
+          if ($LASTEXITCODE) { throw 'uninstall' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lx-agent
+          path: dist/lx-agent.exe
+          retention-days: 14

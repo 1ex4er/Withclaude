@@ -6,3 +6,8 @@ agent/config.json
 agent/state.json
 agent/audit.log
 backups/
+dist/
+.cache/
+agent/agent.log*
+agent/keys/
+!release/*.pem

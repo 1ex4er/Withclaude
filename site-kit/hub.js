@@ -9,6 +9,13 @@
 //   const status = await hub.call('blackout-main', 'server.status', {}, { steamId, name });
 //
 // Права админов проверяет САЙТ до вызова hub.call (вход через Steam + список SteamID + 2FA).
+//
+// Для магазина LX агенты покупателей не прописываются заранее — их пускает authorize:
+//   new AgentHub({ sitePrivateKey, authorize: async (hello, ip) => {
+//     // hello.license, hello.pub (публичный ключ агента), hello.allow, ip
+//     // найти лицензию, проверить IP, при первом подключении привязать hello.pub к лицензии
+//     return { id: 'lic-123', publicKey: storedPubPem } // или null — не пускать
+//   }})
 
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -18,11 +25,13 @@ import { PROTOCOL_VERSION, loadPrivateKey, loadPublicKey, newNonce, sign, verify
 const AUTH_TIMEOUT_MS = 10_000;
 
 export class AgentHub extends EventEmitter {
-  constructor({ sitePrivateKey, agents, callTimeoutMs = 30_000 }) {
+  constructor({ sitePrivateKey, agents = {}, authorize = null, callTimeoutMs = 30_000 }) {
     super();
     this.key = typeof sitePrivateKey === 'string' ? loadPrivateKey(sitePrivateKey) : sitePrivateKey;
     this.agentKeys = new Map(Object.entries(agents).map(([id, k]) => [id, typeof k === 'string' ? loadPublicKey(k) : k]));
+    this.authorize = authorize;
     this.callTimeoutMs = callTimeoutMs;
+    this.info = new Map(); // agentId -> { ip, version, allow, license }
     this.sockets = new Map(); // agentId -> ws
     this.pending = new Map(); // callId -> { resolve, reject, timer, agentId }
     this.wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
@@ -40,9 +49,20 @@ export class AgentHub extends EventEmitter {
     return this.sockets.has(agentId);
   }
 
+  // Публичный ключ агента: из списка agents или через authorize(hello, ip).
+  async #resolveAgent(hello, ip) {
+    if (typeof hello.agent !== 'string') return null;
+    if (this.agentKeys.has(hello.agent)) return { id: hello.agent, publicKey: this.agentKeys.get(hello.agent) };
+    if (!this.authorize) return null;
+    const res = await this.authorize(hello, ip);
+    if (!res?.publicKey || !res.id) return null;
+    return { id: res.id, publicKey: typeof res.publicKey === 'string' ? loadPublicKey(res.publicKey) : res.publicKey };
+  }
+
   #onConnection(ws, req) {
     const nonce = newNonce();
     let agentId = null;
+    let authing = false;
     const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() ?? req.socket.remoteAddress;
     const timer = setTimeout(() => ws.terminate(), AUTH_TIMEOUT_MS);
     ws.send(JSON.stringify({ type: 'challenge', nonce }));
@@ -55,18 +75,25 @@ export class AgentHub extends EventEmitter {
         return ws.terminate();
       }
       if (!agentId) {
-        const key = msg.type === 'hello' ? this.agentKeys.get(msg.agent) : null;
-        const fresh = Math.abs(Date.now() - msg.ts) < 30_000;
-        if (!key || msg.nonce !== nonce || !fresh || msg.v !== PROTOCOL_VERSION || !verify(msg, key)) {
-          this.emit('authFailed', { ip, agent: msg.agent });
-          return ws.terminate();
-        }
-        clearTimeout(timer);
-        agentId = msg.agent;
-        this.sockets.get(agentId)?.terminate(); // старое соединение того же агента
-        this.sockets.set(agentId, ws);
-        ws.send(JSON.stringify({ type: 'welcome' }));
-        this.emit('online', agentId, { ip, version: msg.version });
+        if (authing || msg.type !== 'hello') return ws.terminate();
+        authing = true;
+        this.#handshake(ws, msg, nonce, ip)
+          .then((id) => {
+            if (!id) {
+              this.emit('authFailed', { ip, agent: msg.agent, license: msg.license });
+              return ws.terminate();
+            }
+            clearTimeout(timer);
+            agentId = id;
+            this.sockets.get(agentId)?.terminate(); // старое соединение того же агента
+            this.sockets.set(agentId, ws);
+            // agent — как агент называет себя сам; в командах он ждёт именно это имя.
+            const info = { agent: msg.agent, ip, version: msg.version, allow: msg.allow, license: msg.license ?? null };
+            this.info.set(agentId, info);
+            ws.send(JSON.stringify({ type: 'welcome' }));
+            this.emit('online', agentId, info);
+          })
+          .catch(() => ws.terminate());
         return;
       }
       if (msg.type === 'res') {
@@ -84,6 +111,7 @@ export class AgentHub extends EventEmitter {
       clearTimeout(timer);
       if (agentId && this.sockets.get(agentId) === ws) {
         this.sockets.delete(agentId);
+        this.info.delete(agentId);
         for (const [id, p] of this.pending) {
           if (p.agentId !== agentId) continue;
           clearTimeout(p.timer);
@@ -96,13 +124,21 @@ export class AgentHub extends EventEmitter {
     ws.on('error', () => {});
   }
 
+  async #handshake(ws, msg, nonce, ip) {
+    const fresh = Math.abs(Date.now() - msg.ts) < 30_000;
+    if (msg.nonce !== nonce || !fresh || msg.v !== PROTOCOL_VERSION) return null;
+    const agent = await this.#resolveAgent(msg, ip);
+    if (!agent || !verify(msg, agent.publicKey)) return null;
+    return agent.id;
+  }
+
   // actor — кто из админов выполняет действие (пишется в журнал агента).
   call(agentId, action, params = {}, actor = null, { timeoutMs = this.callTimeoutMs } = {}) {
     const ws = this.sockets.get(agentId);
     if (!ws) return Promise.reject(Object.assign(new Error('Агент не в сети'), { code: 'agent_offline' }));
     const id = crypto.randomUUID();
     const msg = sign(
-      { type: 'cmd', v: PROTOCOL_VERSION, id, agent: agentId, ts: Date.now(), nonce: newNonce(), action, params, actor },
+      { type: 'cmd', v: PROTOCOL_VERSION, id, agent: this.info.get(agentId)?.agent ?? agentId, ts: Date.now(), nonce: newNonce(), action, params, actor },
       this.key,
     );
     return new Promise((resolve, reject) => {

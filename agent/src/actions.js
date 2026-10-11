@@ -9,10 +9,13 @@ const MOD_LIST = (v, name) => {
   return v;
 };
 
-export function createActions({ server, rcon, files, logs, mods, rconCfg }) {
+// Какие действия доступны конкретному сайту, решает allow в config.json агента (см. connection.js).
+export function createActions({ server, rcon, files, lxFiles, lxModPrefix, logs, mods, rconCfg, info }) {
   const rconCmd = (cmd) => rcon.command(cmd);
 
   return {
+    'agent.info': () => info(),
+
     // --- Сервер ---
     'server.status': () => server.status(),
     'server.start': () => server.start(),
@@ -80,8 +83,8 @@ export function createActions({ server, rcon, files, logs, mods, rconCfg }) {
     // --- Логи ---
     'logs.list': () => logs.list(),
     'logs.tail': (p) => logs.tail(p.file, p.lines ?? 200),
-    'logs.follow': (p) => logs.follow(p.file),
-    'logs.unfollow': (p) => logs.unfollow(p.file),
+    'logs.follow': (p, _actor, hub) => logs.follow(p.file, hub),
+    'logs.unfollow': (p, _actor, hub) => logs.unfollow(p.file, hub),
 
     // --- Моды ---
     'mods.list': () => mods.list(server.mods()),
@@ -92,5 +95,15 @@ export function createActions({ server, rcon, files, logs, mods, rconCfg }) {
       }
       return mods.update(MOD_LIST(p.folders, 'folders'));
     },
+
+    // --- Моды LX: только их папки конфигов и список установленных LX-модов ---
+    'lx.mods': () =>
+      mods.list(server.mods()).filter((m) => m.folder.toLowerCase().startsWith(lxModPrefix.toLowerCase())),
+    'lx.roots': () => lxFiles.roots(),
+    'lx.list': (p) => lxFiles.list(p.root, p.dir ?? ''),
+    'lx.read': (p) => lxFiles.read(p.root, p.path),
+    'lx.write': (p, actor) => lxFiles.write(p.root, p.path, p.content, p.baseSha, actor),
+    'lx.backups': (p) => lxFiles.backups(p.root, p.path),
+    'lx.restore': (p) => lxFiles.restore(p.root, p.path, p.backupId),
   };
 }
