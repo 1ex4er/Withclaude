@@ -6,7 +6,6 @@
 
 import {
   ActionRowBuilder,
-  AttachmentBuilder,
   ChannelSelectMenuBuilder,
   ChannelType,
   MessageFlags,
@@ -127,10 +126,21 @@ export default {
     if (sub === 'show') return i.reply({ embeds: describe(ctx), flags: ephemeral });
 
     if (sub === 'roles-list') {
-      const roles = [...(await i.guild.roles.fetch()).values()].sort((a, b) => b.position - a.position);
-      const lines = roles.map((r) => `${r.id}\t${r.name}\t${r.members.size} уч.${r.managed ? '\t(интеграция)' : ''}`);
-      const file = new AttachmentBuilder(Buffer.from(lines.join('\n'), 'utf8'), { name: 'roles.txt' });
-      return i.reply({ content: `Ролей: ${roles.length}`, files: [file], flags: ephemeral });
+      // Текстом, а не файлом: файлы с CDN Discord у части игроков не открываются.
+      const roles = [...(await i.guild.roles.fetch()).values()]
+        .filter((r) => r.id !== i.guild.id)
+        .sort((a, b) => b.position - a.position);
+      const lines = roles.map((r) => `<@&${r.id}> \`${r.id}\`${r.managed ? ' · бот' : ''}`);
+      const chunks = [];
+      for (const line of lines) {
+        if (!chunks.length || chunks.at(-1).length + line.length + 1 > 3900) chunks.push('');
+        chunks[chunks.length - 1] += (chunks.at(-1) ? '\n' : '') + line;
+      }
+      const embeds = chunks.map((text, n) => embed('info', n === 0 ? `Роли сервера: ${roles.length}` : null, text));
+      // В одном сообщении не больше 6000 символов текста — шлём по одному блоку.
+      await i.reply({ embeds: [embeds[0]], flags: ephemeral });
+      for (const e of embeds.slice(1)) await i.followUp({ embeds: [e], flags: ephemeral });
+      return;
     }
   },
 
