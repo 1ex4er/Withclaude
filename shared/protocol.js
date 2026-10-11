@@ -35,7 +35,8 @@ export function loadPublicKey(fileOrPem) {
 }
 
 export function sign(message, privateKey) {
-  const { sig: _ignored, ...body } = message;
+  const body = { ...message };
+  delete body.sig;
   const sig = crypto.sign(null, Buffer.from(canonicalize(body)), privateKey).toString('base64');
   return { ...body, sig };
 }

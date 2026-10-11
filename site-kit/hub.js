@@ -25,11 +25,13 @@ import { PROTOCOL_VERSION, loadPrivateKey, loadPublicKey, newNonce, sign, verify
 const AUTH_TIMEOUT_MS = 10_000;
 
 export class AgentHub extends EventEmitter {
-  constructor({ sitePrivateKey, agents = {}, authorize = null, callTimeoutMs = 30_000 }) {
+  // trustProxy: true, только если хаб стоит за nginx и слушает 127.0.0.1 — иначе X-Forwarded-For можно подделать.
+  constructor({ sitePrivateKey, agents = {}, authorize = null, callTimeoutMs = 30_000, trustProxy = false }) {
     super();
     this.key = typeof sitePrivateKey === 'string' ? loadPrivateKey(sitePrivateKey) : sitePrivateKey;
     this.agentKeys = new Map(Object.entries(agents).map(([id, k]) => [id, typeof k === 'string' ? loadPublicKey(k) : k]));
     this.authorize = authorize;
+    this.trustProxy = trustProxy;
     this.callTimeoutMs = callTimeoutMs;
     this.info = new Map(); // agentId -> { ip, version, allow, license }
     this.sockets = new Map(); // agentId -> ws
@@ -63,7 +65,8 @@ export class AgentHub extends EventEmitter {
     const nonce = newNonce();
     let agentId = null;
     let authing = false;
-    const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() ?? req.socket.remoteAddress;
+    const forwarded = this.trustProxy ? req.headers['x-forwarded-for']?.split(',').at(-1).trim() : null;
+    const ip = forwarded || req.socket.remoteAddress;
     const timer = setTimeout(() => ws.terminate(), AUTH_TIMEOUT_MS);
     ws.send(JSON.stringify({ type: 'challenge', nonce }));
 

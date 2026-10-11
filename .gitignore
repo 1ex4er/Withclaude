@@ -11,3 +11,7 @@ dist/
 agent/agent.log*
 agent/keys/
 !release/*.pem
+bot/config.json
+*.db
+*.db-*
+bot/transcripts/

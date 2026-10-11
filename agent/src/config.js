@@ -14,7 +14,7 @@ const ALLOW_PATTERN = /^(\*|[a-z]+\.\*|[a-z]+\.[A-Za-z]+)$/;
 export function loadConfig(file) {
   const configPath = path.resolve(file);
   const baseDir = path.dirname(configPath);
-  const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8').replace(/^﻿/, ''));
+  const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, ''));
   const rel = (p) => (p ? path.resolve(baseDir, p) : p);
 
   if (!cfg.server?.dir) throw new Error('config.json: не задан server.dir (папка DayZ-сервера)');

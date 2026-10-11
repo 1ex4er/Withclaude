@@ -1,0 +1,74 @@
+{
+  "guildId": "ID_DISCORD_СЕРВЕРА",
+  "publicUrl": "https://blackoutstalkerrp.ru",
+  "http": { "host": "127.0.0.1", "port": 3100 },
+
+  "agent": {
+    "id": "blackout-main",
+    "sitePrivateKey": "keys/site_private.pem",
+    "agentPublicKey": "keys/agent_public.pem"
+  },
+
+  "roles": {
+    "admin": ["ID_РОЛИ_АДМИНОВ"],
+    "moderator": ["ID_РОЛИ_МОДЕРАТОРОВ"],
+    "support": ["ID_РОЛИ_ПОДДЕРЖКИ"],
+    "verified": "ID_РОЛИ_ПРОШЁЛ_ВЕРИФИКАЦИЮ",
+    "unverified": "",
+    "steamLinked": "ID_РОЛИ_STEAM_ПРИВЯЗАН",
+    "whitelisted": "ID_РОЛИ_ВАЙТЛИСТ"
+  },
+
+  "channels": {
+    "status": "ID_КАНАЛА_СТАТУСА",
+    "alerts": "ID_КАНАЛА_ТРЕВОГ_ДЛЯ_АДМИНОВ",
+    "modLog": "ID_КАНАЛА_ЛОГОВ_МОДЕРАЦИИ",
+    "adminLog": "ID_КАНАЛА_ДЕЙСТВИЙ_С_СЕРВЕРОМ",
+    "joinLeave": "ID_КАНАЛА_ВХОДОВ_ВЫХОДОВ",
+    "killFeed": "ID_КАНАЛА_УБИЙСТВ",
+    "gameChat": "ID_КАНАЛА_ИГРОВОГО_ЧАТА",
+    "applications": "ID_КАНАЛА_АНКЕТ_ДЛЯ_МОДЕРАТОРОВ",
+    "ticketLog": "ID_КАНАЛА_АРХИВА_ТИКЕТОВ"
+  },
+
+  "status": { "intervalSec": 60, "maxPlayers": 60, "connect": "109.248.4.96:2302" },
+
+  "tickets": { "categoryId": "ID_КАТЕГОРИИ_ДЛЯ_ТИКЕТОВ", "maxOpenPerUser": 2 },
+
+  "applications": {
+    "acceptRoles": ["ID_РОЛИ_СТАЛКЕР"],
+    "removeRoles": [],
+    "addToWhitelist": true,
+    "cooldownHours": 24,
+    "requireSteam": true
+  },
+
+  "whitelist": { "root": "server", "path": "whitelist.txt" },
+
+  "banCheck": {
+    "alertOnLink": true,
+    "providers": []
+  },
+
+  "selfRoles": [
+    { "id": "ID_РОЛИ", "label": "Новости", "emoji": "📰" },
+    { "id": "ID_РОЛИ", "label": "Ивенты", "emoji": "🎯" }
+  ],
+
+  "verify": { "minAccountAgeDays": 3 },
+
+  "automod": {
+    "exemptRoles": [],
+    "spam": { "messages": 6, "seconds": 8 },
+    "duplicates": 3,
+    "maxMentions": 5,
+    "blockInvites": true,
+    "blockScamLinks": true,
+    "extraBlockedPatterns": [],
+    "timeoutMinutes": 10
+  },
+
+  "antiraid": { "joins": 8, "seconds": 20, "minAccountAgeDays": 1, "lockMinutes": 15, "action": "kick" },
+  "antinuke": { "actions": 4, "seconds": 30, "trusted": [] },
+  "warns": { "muteAt": 3, "muteMinutes": 60, "banAt": 5 }
+}

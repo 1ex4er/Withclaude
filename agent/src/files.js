@@ -194,7 +194,7 @@ function validateContent(abs, content) {
   const ext = path.extname(abs).toLowerCase();
   if (ext === '.json') {
     try {
-      JSON.parse(content.replace(/^﻿/, ''));
+      JSON.parse(content.replace(/^\uFEFF/, ''));
     } catch (e) {
       throw new AgentError('invalid', `Ошибка в JSON: ${e.message}`);
     }
@@ -207,7 +207,7 @@ function validateContent(abs, content) {
 // Проверка, что XML корректен (теги закрыты, один корень). Ошибка в types.xml ломает
 // экономику сервера, поэтому лучше поймать её до сохранения.
 export function checkXml(text) {
-  const src = text.replace(/^﻿/, '');
+  const src = text.replace(/^\uFEFF/, '');
   const lineAt = (i) => src.slice(0, i).split('\n').length;
   const markup = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<!DOCTYPE[^>]*>|<[^>]*>?/g;
   const tag = /^<(\/)?([A-Za-z_][\w.:-]*)((?:\s+[A-Za-z_][\w.:-]*\s*=\s*(?:"[^"<]*"|'[^'<]*'))*)\s*(\/)?>$/;

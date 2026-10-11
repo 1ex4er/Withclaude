@@ -11,13 +11,20 @@
     "agent": "node agent/src/main.js run",
     "keygen": "node tools/keygen.js",
     "build:exe": "node tools/build-exe.js",
-    "test": "node --test"
+    "test": "node --test",
+    "lint": "eslint .",
+    "bot": "node bot/src/index.js"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "discord.js": "^14.27.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
     "esbuild": "^0.25.10",
+    "eslint": "^9.39.1",
+    "globals": "^15.15.0",
     "postject": "^1.0.0-alpha.6"
   }
 }

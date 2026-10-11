@@ -22,6 +22,7 @@ export const check = {
   },
   // Текст для игрового чата/причины бана: без переводов строк и управляющих символов.
   text(value, name, max = 200) {
+    // eslint-disable-next-line no-control-regex
     return check.string(value, name, { max }).replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
   },
 };

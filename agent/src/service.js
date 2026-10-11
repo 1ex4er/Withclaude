@@ -47,7 +47,7 @@ function requireWindows() {
 export function install({ exe, args, workDir, user, password }) {
   requireWindows();
   const xmlFile = path.join(os.tmpdir(), `lx-agent-task-${process.pid}.xml`);
-  fs.writeFileSync(xmlFile, '﻿' + taskXml({ exe, args, workDir, user }), 'utf16le');
+  fs.writeFileSync(xmlFile, '\uFEFF' + taskXml({ exe, args, workDir, user }), 'utf16le');
   try {
     const args = ['/Create', '/TN', TASK_NAME, '/XML', xmlFile, '/F'];
     if (user) args.push('/RU', user, '/RP', password ?? '');
