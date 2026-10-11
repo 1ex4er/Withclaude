@@ -1,6 +1,8 @@
 // Бот Blackout + служба управления сервером.
 //   node bot/src/index.js [путь к config.json]
 
+// preload.js — первым: .env и прокси до загрузки discord.js.
+import { proxyAgent } from './preload.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
@@ -8,6 +10,7 @@ import { AgentLink } from './agent.js';
 import { loadConfig } from './config.js';
 import { createContext, createRouter } from './core.js';
 import { openDb } from './db.js';
+import { proxiedMakeRequest } from './proxy-rest.js';
 import { createHttpServer } from './http.js';
 import { Links } from './links.js';
 import { applySettings } from './settings.js';
@@ -38,6 +41,7 @@ const client = new Client({
   ],
   partials: [Partials.GuildMember],
   allowedMentions: { parse: [], repliedUser: false },
+  ...(proxyAgent ? { rest: { makeRequest: proxiedMakeRequest(proxyAgent) } } : {}),
 });
 
 const ctx = createContext({ client, cfg, db, agent, links, log });
