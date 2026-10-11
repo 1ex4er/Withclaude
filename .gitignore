@@ -1,0 +1,8 @@
+node_modules/
+.env
+*.pem
+keys/
+agent/config.json
+agent/state.json
+agent/audit.log
+backups/

@@ -1,0 +1,62 @@
+{
+  "agentId": "blackout-main",
+  "hubUrl": "wss://blackoutstalkerrp.ru/agent-ws",
+  "tlsPinSha256": "",
+
+  "keys": {
+    "agentPrivateKey": "../keys/agent_private.pem",
+    "sitePublicKey": "../keys/site_public.pem"
+  },
+
+  "server": {
+    "dir": "C:\\DayZServer",
+    "exe": "DayZServer_x64.exe",
+    "config": "serverDZ.cfg",
+    "port": 2302,
+    "profiles": "profiles",
+    "bePath": "battleye",
+    "extraArgs": ["-dologs", "-adminlog", "-netlog", "-freezecheck"],
+    "mods": ["@CF"],
+    "serverMods": [],
+    "autoRestartOnCrash": true,
+    "stopTimeoutSec": 60
+  },
+
+  "schedule": {
+    "restarts": ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"],
+    "warnMinutes": [15, 5, 1],
+    "warnMessage": "Рестарт сервера через {min} мин."
+  },
+
+  "rcon": {
+    "host": "127.0.0.1",
+    "port": 2306,
+    "allowRaw": false
+  },
+
+  "files": {
+    "roots": {
+      "server": "C:\\DayZServer",
+      "mission": "C:\\DayZServer\\mpmissions\\dayzOffline.chernarusplus",
+      "profiles": "C:\\DayZServer\\profiles"
+    },
+    "extensions": [".cfg", ".xml", ".json", ".txt"],
+    "deny": ["beserver", "battleye", "keys", ".exe", ".dll", ".bikey"],
+    "maskedCfgKeys": ["passwordAdmin"],
+    "maxSizeMb": 10,
+    "backupDir": "C:\\DayZAgent\\backups",
+    "keepBackups": 50
+  },
+
+  "logs": {
+    "dir": "C:\\DayZServer\\profiles",
+    "extensions": [".rpt", ".adm", ".log"]
+  },
+
+  "steamcmd": {
+    "path": "C:\\steamcmd\\steamcmd.exe"
+  },
+
+  "stateFile": "./state.json",
+  "auditLog": "./audit.log"
+}
