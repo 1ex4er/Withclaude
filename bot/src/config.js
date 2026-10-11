@@ -6,6 +6,8 @@ const DEFAULTS = {
   publicUrl: 'https://blackoutstalkerrp.ru',
   http: { host: '127.0.0.1', port: 3100 },
   commands: { hideFromPlayers: true },
+  // Приём нажатий по HTTP (нужен DISCORD_PUBLIC_KEY в .env и адрес в Developer Portal).
+  interactions: { path: '/discord/interactions' },
   agent: {
     id: 'blackout-main',
     sitePrivateKey: 'keys/site_private.pem',
@@ -97,6 +99,7 @@ export function loadConfig(file) {
   cfg.secrets = {
     discordToken: process.env.DISCORD_TOKEN,
     apiToken: process.env.API_TOKEN || null,
+    publicKey: process.env.DISCORD_PUBLIC_KEY || null,
   };
   return cfg;
 }

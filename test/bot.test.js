@@ -413,3 +413,41 @@ test('RP-наказание: выдаётся роль, повтор замен�
   assert.ok(!roles.has('R_NONRP'));
   assert.equal(db.prepare('SELECT COUNT(*) n FROM punishments WHERE removed_by = ?').get('auto').n, 1);
 });
+
+test('HTTP-нажатия: подпись Discord проверяется, первый ответ уходит в HTTP, остальные — в REST', async () => {
+  const { HttpInteractions, publicKeyFromHex } = await import('../bot/src/http-interactions.js');
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  const hex = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('hex');
+  assert.ok(publicKeyFromHex(hex));
+  const hi = new HttpInteractions({ publicKeyHex: hex, log: { warn() {}, error() {} } });
+  const sign = (body, t = '1700000000') => ({
+    'x-signature-ed25519': crypto.sign(null, Buffer.concat([Buffer.from(t), Buffer.from(body)]), privateKey).toString('hex'),
+    'x-signature-timestamp': t,
+  });
+
+  const ping = JSON.stringify({ type: 1 });
+  assert.deepEqual(await hi.handle(sign(ping), Buffer.from(ping)), { status: 200, body: { type: 1 } });
+  assert.equal((await hi.handle({ ...sign(ping), 'x-signature-timestamp': '1' }, Buffer.from(ping))).status, 401);
+
+  const sent = [];
+  const base = async (url, init) => (sent.push(url), { status: 200, ok: true });
+  const makeRequest = hi.intercept(base);
+  hi.client = {
+    isReady: () => true,
+    actions: {
+      InteractionCreate: {
+        handle: (d) =>
+          setTimeout(async () => {
+            // Так discord.js отвечает на нажатие: callback, затем follow-up.
+            await makeRequest(`https://discord.com/api/v10/interactions/${d.id}/tok/callback?with_response=false`, { body: JSON.stringify({ type: 4, data: { content: 'ok' } }) });
+            await makeRequest(`https://discord.com/api/v10/webhooks/app/tok`, { body: '{}' });
+          }, 10),
+      },
+    },
+  };
+  const cmd = JSON.stringify({ id: '123', type: 2, data: { name: 'status' } });
+  const r = await hi.handle(sign(cmd), Buffer.from(cmd));
+  assert.deepEqual(r, { status: 200, body: { type: 4, data: { content: 'ok' } } });
+  await new Promise((res) => setTimeout(res, 20));
+  assert.deepEqual(sent, ['https://discord.com/api/v10/webhooks/app/tok']);
+});

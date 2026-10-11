@@ -3,6 +3,7 @@
 
 // preload.js — первым: .env и прокси до загрузки discord.js.
 import { proxyAgent } from './preload.js';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
@@ -12,6 +13,7 @@ import { createContext, createRouter } from './core.js';
 import { scheduleBackups } from './backup.js';
 import { setBanCheckProxy } from './bancheck.js';
 import { openDb } from './db.js';
+import { HttpInteractions } from './http-interactions.js';
 import { proxiedMakeRequest } from './proxy-rest.js';
 import { createHttpServer } from './http.js';
 import { Links } from './links.js';
@@ -35,6 +37,13 @@ const links = new Links(db);
 const agent = new AgentLink(cfg, log);
 if (proxyAgent) setBanCheckProxy(proxyAgent);
 
+// Нажатия по HTTP (если задан DISCORD_PUBLIC_KEY): первый ответ уходит в HTTP-ответ, остальное — через REST.
+const httpInteractions = cfg.secrets.publicKey ? new HttpInteractions({ publicKeyHex: cfg.secrets.publicKey, log }) : null;
+const baseMakeRequest = proxyAgent
+  ? proxiedMakeRequest(proxyAgent)
+  : createRequire(createRequire(import.meta.url).resolve('discord.js'))('@discordjs/rest').DefaultRestOptions.makeRequest;
+const makeRequest = httpInteractions ? httpInteractions.intercept(baseMakeRequest) : baseMakeRequest;
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -45,9 +54,13 @@ const client = new Client({
   ],
   partials: [Partials.GuildMember],
   allowedMentions: { parse: [], repliedUser: false },
-  ...(proxyAgent ? { rest: { makeRequest: proxiedMakeRequest(proxyAgent) } } : {}),
+  rest: { makeRequest },
 });
 
+if (httpInteractions) {
+  httpInteractions.client = client;
+  log.info(`нажатия принимаются по HTTP: ${cfg.interactions.path}`);
+}
 const ctx = createContext({ client, cfg, db, agent, links, log });
 ctx.whitelist = new Whitelist(ctx);
 const route = createRouter(MODULES, ctx);
@@ -83,6 +96,7 @@ const server = createHttpServer({
   agent,
   log,
   onLinked: (discordId, steamId, previous) => ctx.emitLinked?.(discordId, steamId, previous) ?? Promise.resolve(),
+  interactions: httpInteractions,
 });
 server.listen(cfg.http.port, cfg.http.host, () => log.info(`HTTP: http://${cfg.http.host}:${cfg.http.port} (за nginx)`));
 

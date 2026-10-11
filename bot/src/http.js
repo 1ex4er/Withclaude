@@ -37,12 +37,25 @@ async function readJson(req, limit = 1024 * 1024) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
 }
 
-export function createHttpServer({ cfg, links, agent, log, onLinked }) {
+export function createHttpServer({ cfg, links, agent, log, onLinked, interactions = null }) {
   const callbackBase = `${cfg.publicUrl}/link/steam/callback`;
 
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, cfg.publicUrl);
+
+      // Нажатия и команды Discord по HTTP (см. http-interactions.js).
+      if (interactions && req.method === 'POST' && url.pathname === cfg.interactions.path) {
+        const chunks = [];
+        let size = 0;
+        for await (const c of req) {
+          size += c.length;
+          if (size > 1024 * 1024) return send(res, 413, 'too large', 'text/plain');
+          chunks.push(c);
+        }
+        const r = await interactions.handle(req.headers, Buffer.concat(chunks));
+        return send(res, r.status, JSON.stringify(r.body), 'application/json');
+      }
 
       if (req.method === 'GET' && url.pathname === '/link/steam/start') {
         const t = url.searchParams.get('t') ?? '';
