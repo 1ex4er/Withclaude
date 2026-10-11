@@ -117,7 +117,12 @@ export default {
     const id = Number(idStr);
     const app = q.get.get(id);
     if (!app) throw new BotError('Анкета не найдена');
-    if (app.status !== 'pending') throw new BotError('Анкета уже рассмотрена');
+    if (app.status !== 'pending') {
+      // Кнопки «зависли» (Discord не дождался ответа) — приводим сообщение в порядок.
+      const state = app.status === 'accepted' ? embed('ok', null, `✅ Принята <@${app.reviewer_id}>`) : embed('bad', null, `❌ Отклонена <@${app.reviewer_id}>${app.reason ? `: ${app.reason}` : ''}`);
+      if (i.isMessageComponent()) return i.update({ embeds: [...i.message.embeds, state], components: [reviewButtons(id, true)] });
+      throw new BotError('Анкета уже рассмотрена');
+    }
 
     if (action === 'reject') {
       const modal = new ModalBuilder()
