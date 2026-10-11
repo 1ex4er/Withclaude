@@ -79,7 +79,7 @@ await client.login(cfg.secrets.discordToken);
 const shutdown = async () => {
   log.info('остановка');
   server.close();
-  agent.hub.close();
+  agent.hub?.close();
   await client.destroy();
   db.close();
   process.exit(0);

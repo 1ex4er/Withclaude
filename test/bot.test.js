@@ -149,7 +149,7 @@ test('проверка банов: Steam API и подключаемая баз�
 test('HTTP: старт привязки, неверный токен, API только с токеном', async () => {
   const links = new Links(openDb(':memory:'));
   const cfg = { publicUrl: 'https://blackout.test', secrets: { apiToken: 'secret-token' } };
-  const agent = { attach() {}, id: 'a', hub: { call: async (id, action) => ({ action }) } };
+  const agent = { attach() {}, call: async (action) => ({ action }) };
   const quiet = { info() {}, warn() {}, error() {} };
   const srv = createHttpServer({ cfg, links, agent, log: quiet });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
@@ -185,4 +185,14 @@ test('настройки из /setup накладываются на конфи�
   const fresh = applySettings({ roles: { admin: [], verified: '' }, channels: {} }, db);
   assert.deepEqual(fresh.roles.admin, ['1', '2']);
   assert.equal(fresh.channels.modLog, '3');
+});
+
+test('бот без ключей агента запускается, управление сервером просто недоступно', async () => {
+  const { AgentLink } = await import('../bot/src/agent.js');
+  const warns = [];
+  const link = new AgentLink({ agent: { id: 'x', sitePrivateKey: '/нет/site.pem', agentPublicKey: '/нет/agent.pem' }, http: { host: '127.0.0.1' } }, { warn: (m) => warns.push(m), info() {} });
+  assert.equal(link.online, false);
+  link.attach({ on() {} });
+  await assert.rejects(link.call('server.status'), { code: 'agent_offline' });
+  assert.match(warns[0], /управление сервером выключено/);
 });

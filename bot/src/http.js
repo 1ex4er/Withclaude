@@ -73,7 +73,7 @@ export function createHttpServer({ cfg, links, agent, log, onLinked }) {
           const { action, params, actor } = await readJson(req);
           if (typeof action !== 'string') return send(res, 400, '{"error":"action"}', 'application/json');
           try {
-            const result = await agent.hub.call(agent.id, action, params ?? {}, actor ?? { name: 'site' });
+            const result = await agent.call(action, params ?? {}, actor ?? 'site');
             return send(res, 200, JSON.stringify({ ok: true, result }), 'application/json');
           } catch (e) {
             return send(res, 200, JSON.stringify({ ok: false, error: { code: e.code ?? 'error', message: e.message } }), 'application/json');
