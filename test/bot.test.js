@@ -196,3 +196,60 @@ test('бот без ключей агента запускается, управ
   await assert.rejects(link.call('server.status'), { code: 'agent_offline' });
   assert.match(warns[0], /управление сервером выключено/);
 });
+
+function fakeInteraction(kind) {
+  const calls = [];
+  const i = {
+    replied: false,
+    deferred: false,
+    isChatInputCommand: () => kind === 'command',
+    isContextMenuCommand: () => false,
+    isMessageComponent: () => kind === 'button',
+    isModalSubmit: () => false,
+    reply: async (p) => (calls.push(['reply', p]), (i.replied = true)),
+    update: async (p) => (calls.push(['update', p]), (i.replied = true)),
+    deferReply: async (p) => (calls.push(['deferReply', p]), (i.deferred = true)),
+    deferUpdate: async () => (calls.push(['deferUpdate']), (i.deferred = true)),
+    editReply: async (p) => calls.push(['editReply', p]),
+    followUp: async (p) => calls.push(['followUp', p]),
+  };
+  return { i, calls };
+}
+
+test('медленная команда: бот откладывает ответ, а потом редактирует его', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { autoDefer } = await import('../bot/src/core.js');
+  const { i, calls } = fakeInteraction('command');
+  const settle = autoDefer(i);
+  t.mock.timers.tick(2100);
+  await i.reply({ content: 'готово', flags: 64 });
+  settle();
+  assert.deepEqual(calls.map((c) => c[0]), ['deferReply', 'editReply']);
+  assert.deepEqual(calls[1][1], { content: 'готово' });
+});
+
+test('быстрая команда отвечает как обычно', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { autoDefer } = await import('../bot/src/core.js');
+  const { i, calls } = fakeInteraction('command');
+  const settle = autoDefer(i);
+  await i.reply({ content: 'ok' });
+  t.mock.timers.tick(5000);
+  settle();
+  assert.deepEqual(calls.map((c) => c[0]), ['reply']);
+});
+
+test('медленная кнопка: update идёт в исходное сообщение, reply — отдельным сообщением', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { autoDefer } = await import('../bot/src/core.js');
+  const a = fakeInteraction('button');
+  autoDefer(a.i);
+  t.mock.timers.tick(2100);
+  await a.i.update({ content: 'x' });
+  assert.deepEqual(a.calls.map((c) => c[0]), ['deferUpdate', 'editReply']);
+  const b = fakeInteraction('button');
+  autoDefer(b.i);
+  t.mock.timers.tick(2100);
+  await b.i.reply({ content: 'роль выдана' });
+  assert.deepEqual(b.calls.map((c) => c[0]), ['deferUpdate', 'followUp']);
+});

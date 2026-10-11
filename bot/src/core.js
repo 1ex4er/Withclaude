@@ -65,6 +65,49 @@ export async function replyError(interaction, message) {
   } catch {}
 }
 
+// Discord ждёт ответ 3 секунды. Если обработчик не успел за 2 (медленный прокси, вызовы агента,
+// личные сообщения), бот сам откладывает ответ («думает…»), а reply/update дальше идут в отложенный ответ.
+const AUTO_DEFER_MS = 2000;
+export function autoDefer(i) {
+  const isCommand = i.isChatInputCommand?.() || i.isContextMenuCommand?.();
+  const isComponent = i.isMessageComponent?.() || i.isModalSubmit?.();
+  if (!isCommand && !isComponent) return () => {};
+  const canUpdate = isComponent && (i.isMessageComponent() || i.isFromMessage?.());
+  const orig = { reply: i.reply.bind(i), update: i.update?.bind(i), deferReply: i.deferReply.bind(i), deferUpdate: i.deferUpdate?.bind(i) };
+  const strip = (p) => {
+    if (typeof p !== 'object' || p === null) return p;
+    const rest = { ...p };
+    delete rest.flags;
+    delete rest.ephemeral;
+    return rest;
+  };
+  let deferring = null;
+  const timer = setTimeout(() => {
+    if (i.replied || i.deferred) return;
+    deferring = (canUpdate ? orig.deferUpdate() : orig.deferReply({ flags: MessageFlags.Ephemeral })).catch(() => {});
+  }, AUTO_DEFER_MS);
+  const settle = () => clearTimeout(timer);
+
+  i.reply = async (p) => {
+    if (!deferring) return settle(), orig.reply(p);
+    await deferring;
+    // После deferUpdate новый ответ — отдельным сообщением, чтобы не затереть панель с кнопками.
+    return canUpdate ? i.followUp({ ...p, flags: MessageFlags.Ephemeral }) : i.editReply(strip(p));
+  };
+  if (orig.update) {
+    i.update = async (p) => {
+      if (!deferring) return settle(), orig.update(p);
+      await deferring;
+      return i.editReply(strip(p));
+    };
+  }
+  i.deferReply = async (opts) => (deferring ? deferring : (settle(), orig.deferReply(opts)));
+  if (orig.deferUpdate) i.deferUpdate = async () => (deferring ? deferring : (settle(), orig.deferUpdate()));
+  const showModal = i.showModal?.bind(i);
+  if (showModal) i.showModal = (m) => (settle(), showModal(m));
+  return settle;
+}
+
 export function createRouter(modules, ctx) {
   const byCommand = new Map();
   const byPrefix = new Map();
@@ -74,6 +117,7 @@ export function createRouter(modules, ctx) {
   }
 
   return async function route(interaction) {
+    const settle = autoDefer(interaction);
     try {
       if (interaction.isAutocomplete()) {
         await byCommand.get(interaction.commandName)?.onAutocomplete?.(interaction, ctx);
@@ -96,6 +140,8 @@ export function createRouter(modules, ctx) {
       if (e.code && e.message && typeof e.code === 'string') return replyError(interaction, e.message);
       ctx.log.error(`interaction ${interaction.customId ?? interaction.commandName}: ${e.stack}`);
       return replyError(interaction, 'Внутренняя ошибка бота');
+    } finally {
+      settle();
     }
   };
 }

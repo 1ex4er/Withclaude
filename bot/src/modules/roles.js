@@ -7,7 +7,7 @@ import { embed } from '../util.js';
 
 export function rolesPanel(ctx) {
   const roles = ctx.cfg.selfRoles ?? [];
-  if (!roles.length) throw new BotError('В config.json не задан selfRoles');
+  if (!roles.length) throw new BotError('Роли для панели не выбраны: /setup roles → «Панель ролей»');
   const rows = [];
   for (let n = 0; n < roles.length && rows.length < 5; n += 5) {
     rows.push(
