@@ -32,7 +32,7 @@ async function resolvePlayer(ctx, value) {
 async function confirm(i, title, description, run) {
   const token = crypto.randomBytes(8).toString('hex');
   pending.set(token, { userId: i.user.id, title, run, expires: Date.now() + CONFIRM_MS });
-  setTimeout(() => pending.delete(token), CONFIRM_MS);
+  setTimeout(() => pending.delete(token), CONFIRM_MS).unref?.();
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`admin:confirm:${token}`).setLabel('Подтвердить').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(`admin:cancel:${token}`).setLabel('Отмена').setStyle(ButtonStyle.Secondary),

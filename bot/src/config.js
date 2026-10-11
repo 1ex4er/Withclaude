@@ -31,6 +31,7 @@ const DEFAULTS = {
     gameChat: '',
     applications: '',
     ticketLog: '',
+    verifyReview: '',
   },
   status: { intervalSec: 60, maxPlayers: 60, connect: '109.248.4.96:2302' },
   logs: { admFollow: true },
@@ -49,7 +50,7 @@ const DEFAULTS = {
   whitelist: { root: 'server', path: 'whitelist.txt' },
   // Внешние базы банов (HunterEye и т.п.), см. bot/src/bancheck.js. Steam проверяется при STEAM_API_KEY в .env.
   banCheck: { providers: [], alertOnLink: true },
-  verify: { minAccountAgeDays: 3, askSteam: true },
+  verify: { minAccountAgeDays: 3, askSteam: true, manualApproval: false },
   automod: {
     exemptRoles: [],
     spam: { messages: 6, seconds: 8 },

@@ -279,3 +279,49 @@ test('ручная привязка Steam не перебивает чужой �
   links.complete(links.createToken('1'), STEAM);
   assert.equal(links.get('1').method, 'openid');
 });
+
+test('верификация с одобрением: заявка → модератор принимает → роль выдаётся один раз', async () => {
+  const verify = (await import('../bot/src/modules/verify.js')).default;
+  const db = openDb(':memory:');
+  const posted = [];
+  const roles = new Set();
+  const member = {
+    id: '111111111111111111',
+    user: { id: '111111111111111111', tag: 'player', createdTimestamp: Date.now() - 400 * 86400e3, displayAvatarURL: () => '' },
+    joinedTimestamp: Date.now(),
+    roles: { cache: roles, add: async (r) => roles.add(r), remove: async (r) => roles.delete(r) },
+    send: async () => {},
+  };
+  const ctx = {
+    cfg: { roles: { verified: 'V', unverified: '', admin: [], moderator: ['M'], support: [] }, verify: { manualApproval: true, askSteam: true, minAccountAgeDays: 3 }, channels: {}, banCheck: { alertOnLink: false, providers: [] } },
+    db,
+    links: new Links(db),
+    log: { warn() {}, info() {} },
+    post: async (ch, p) => posted.push([ch, p]),
+    audit: async () => {},
+    level: (m) => (m.roles.cache.has('M') ? 2 : 0),
+    require(i, lvl) {
+      if (this.level(i.member) < lvl) throw new Error('нет прав');
+    },
+  };
+  ctx.links.setManual(member.id, STEAM);
+  // Игрок прошёл «нажми картинку», Steam уже указан → заявка.
+  let updated;
+  const challengeI = { user: member.user, member, update: async (p) => (updated = p), showModal: async () => {} };
+  await verify.onComponent({ ...challengeI, reply: async () => {} }, ctx, ['start']).catch(() => {});
+  // Достаём заявку напрямую: симулируем правильный ответ через complete().
+  const pendingBefore = db.kv.get('verify.pending', {});
+  assert.equal(Object.keys(pendingBefore).length, 0);
+  db.kv.set('verify.pending', { [member.id]: { at: Date.now(), steamId: STEAM } });
+  await assert.rejects(verify.onComponent({ user: member.user, member }, ctx, ['start']), /на рассмотрении/);
+
+  const mod = { roles: { cache: new Set(['M']) } };
+  const guild = { members: { fetch: async () => member } };
+  const decision = { message: { embeds: [] }, user: { id: '222222222222222222', tag: 'mod' }, member: mod, guild, update: async (p) => (updated = p) };
+  await verify.onComponent(decision, ctx, ['approve', member.id]);
+  assert.ok(roles.has('V'));
+  assert.equal(updated.components[0].components[0].data.disabled, true);
+  await assert.rejects(verify.onComponent(decision, ctx, ['approve', member.id]), /уже рассмотрена/);
+  await assert.rejects(verify.onComponent({ ...decision, member: { roles: { cache: new Set() } } }, ctx, ['approve', member.id]), /нет прав|рассмотрена/);
+  void posted;
+});

@@ -37,6 +37,7 @@ const CHANNEL_SLOTS = [
   { path: 'channels.alerts', label: 'Тревоги для админов' },
   { path: 'channels.modLog', label: 'Лог модерации' },
   { path: 'channels.adminLog', label: 'Действия с игровым сервером' },
+  { path: 'channels.verifyReview', label: 'Заявки на верификацию (пусто — в мод-лог)' },
   { path: 'channels.applications', label: 'Анкеты на проверку' },
   { path: 'channels.ticketLog', label: 'Архив тикетов' },
   { path: 'channels.joinLeave', label: 'Входы/выходы игроков' },
