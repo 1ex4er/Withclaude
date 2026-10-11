@@ -52,6 +52,7 @@ const route = createRouter(MODULES, ctx);
 
 client.once(Events.ClientReady, async () => {
   log.info(`бот вошёл как ${client.user.tag}`);
+  setInterval(() => log.info(`ping Discord: ${client.ws.ping} мс`), 5 * 60_000).unref();
   const guild = await client.guilds.fetch(cfg.guildId).catch(() => null);
   if (!guild) {
     log.error(`бот не добавлен на сервер ${cfg.guildId}`);

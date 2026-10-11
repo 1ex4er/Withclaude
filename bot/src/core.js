@@ -117,6 +117,9 @@ export function createRouter(modules, ctx) {
   }
 
   return async function route(interaction) {
+    // Диагностика: насколько поздно событие дошло до бота (если больше ~2.5 с — Discord уже не примет ответ).
+    const lag = Date.now() - interaction.createdTimestamp;
+    if (lag > 1500) ctx.log.warn(`взаимодействие ${interaction.commandName ?? interaction.customId} дошло с опозданием ${lag} мс (ping ${ctx.client.ws.ping} мс)`);
     const settle = autoDefer(interaction);
     try {
       if (interaction.isAutocomplete()) {
@@ -138,7 +141,7 @@ export function createRouter(modules, ctx) {
       if (e instanceof BotError) return replyError(interaction, e.message);
       if (e.code === 'agent_offline') return replyError(interaction, 'Агент сервера не в сети — управление сейчас недоступно');
       if (e.code && e.message && typeof e.code === 'string') return replyError(interaction, e.message);
-      ctx.log.error(`interaction ${interaction.customId ?? interaction.commandName}: ${e.stack}`);
+      ctx.log.error(`interaction ${interaction.customId ?? interaction.commandName} (опоздание ${lag} мс): ${e.code ?? ''} ${e.message}`);
       return replyError(interaction, 'Внутренняя ошибка бота');
     } finally {
       settle();
