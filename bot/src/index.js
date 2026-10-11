@@ -55,7 +55,10 @@ client.once(Events.ClientReady, async () => {
     log.error(`бот не добавлен на сервер ${cfg.guildId}`);
     return;
   }
-  const commands = MODULES.flatMap((m) => m.commands ?? []).map((c) => c.toJSON());
+  let commands = MODULES.flatMap((m) => m.commands ?? []).map((c) => c.toJSON());
+  // commands.hideFromPlayers = false: команды персонала видны всем в Discord,
+  // а кто может ими пользоваться, решают роли в боте (roles.admin/moderator/support).
+  if (cfg.commands.hideFromPlayers === false) commands = commands.map((c) => ({ ...c, default_member_permissions: null }));
   await guild.commands.set(commands);
   log.info(`зарегистрировано команд: ${commands.length}`);
   for (const m of MODULES) {

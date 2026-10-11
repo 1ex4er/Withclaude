@@ -5,6 +5,7 @@ const DEFAULTS = {
   guildId: '',
   publicUrl: 'https://blackoutstalkerrp.ru',
   http: { host: '127.0.0.1', port: 3100 },
+  commands: { hideFromPlayers: true },
   agent: {
     id: 'blackout-main',
     sitePrivateKey: 'keys/site_private.pem',
