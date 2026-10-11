@@ -10,6 +10,7 @@ import { createContext, createRouter } from './core.js';
 import { openDb } from './db.js';
 import { createHttpServer } from './http.js';
 import { Links } from './links.js';
+import { applySettings } from './settings.js';
 import { MODULES } from './modules/index.js';
 import { Whitelist } from './whitelist.js';
 
@@ -23,6 +24,7 @@ const log = {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cfg = loadConfig(process.argv[2] ?? path.join(here, '..', 'config.json'));
 const db = openDb(cfg.dbFile);
+applySettings(cfg, db); // роли и каналы, выбранные через /setup
 const links = new Links(db);
 const agent = new AgentLink(cfg, log);
 

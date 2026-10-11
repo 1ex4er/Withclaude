@@ -1,0 +1,157 @@
+// /setup — настройка ролей и каналов прямо в Discord, без копирования ID.
+//   /setup roles      — выпадающие списки ролей сервера
+//   /setup channels   — выпадающие списки каналов
+//   /setup show       — что сейчас настроено
+//   /setup roles-list — файл со всеми ролями сервера и их ID
+
+import {
+  ActionRowBuilder,
+  AttachmentBuilder,
+  ChannelSelectMenuBuilder,
+  ChannelType,
+  MessageFlags,
+  PermissionFlagsBits,
+  RoleSelectMenuBuilder,
+  SlashCommandBuilder,
+} from 'discord.js';
+import { BotError } from '../core.js';
+import { getPath, saveSetting } from '../settings.js';
+import { LEVEL, clip, embed } from '../util.js';
+
+// path — куда в конфиге, multi — можно несколько.
+const ROLE_SLOTS = [
+  { path: 'roles.admin', label: 'Админы (полный доступ)', multi: true },
+  { path: 'roles.moderator', label: 'Модераторы', multi: true },
+  { path: 'roles.support', label: 'Поддержка (тикеты)', multi: true },
+  { path: 'roles.verified', label: 'Выдаётся после верификации' },
+  { path: 'roles.unverified', label: 'Выдаётся новичкам до верификации (можно пусто)' },
+  { path: 'roles.steamLinked', label: 'Выдаётся после привязки Steam' },
+  { path: 'roles.whitelisted', label: 'Вайтлист (доступ на сервер)' },
+  { path: 'applications.acceptRoles', label: 'Выдаются при принятии анкеты', multi: true },
+  { path: 'applications.removeRoles', label: 'Снимаются при принятии анкеты', multi: true },
+  { path: 'selfRoles', label: 'Панель ролей (игроки берут сами)', multi: true, self: true },
+];
+
+const TEXT = [ChannelType.GuildText, ChannelType.GuildAnnouncement];
+const CHANNEL_SLOTS = [
+  { path: 'channels.status', label: 'Статус сервера' },
+  { path: 'channels.alerts', label: 'Тревоги для админов' },
+  { path: 'channels.modLog', label: 'Лог модерации' },
+  { path: 'channels.adminLog', label: 'Действия с игровым сервером' },
+  { path: 'channels.applications', label: 'Анкеты на проверку' },
+  { path: 'channels.ticketLog', label: 'Архив тикетов' },
+  { path: 'channels.joinLeave', label: 'Входы/выходы игроков' },
+  { path: 'channels.killFeed', label: 'Килфид' },
+  { path: 'channels.gameChat', label: 'Игровой чат' },
+  { path: 'tickets.categoryId', label: 'Категория для тикетов', types: [ChannelType.GuildCategory] },
+];
+
+const PAGE = 5; // не больше 5 списков в одном сообщении
+
+function ids(value, slot) {
+  if (slot.self) return (value ?? []).map((r) => r.id);
+  if (Array.isArray(value)) return value;
+  return value ? [value] : [];
+}
+
+function rolePage(ctx, page) {
+  return ROLE_SLOTS.slice(page * PAGE, page * PAGE + PAGE).map((slot, n) => {
+    const index = page * PAGE + n;
+    const menu = new RoleSelectMenuBuilder()
+      .setCustomId(`setup:role:${index}`)
+      .setPlaceholder(slot.label)
+      .setMinValues(0)
+      .setMaxValues(slot.multi ? 10 : 1);
+    const current = ids(getPath(ctx.cfg, slot.path), slot).filter((id) => ctx.guild()?.roles.cache.has(id));
+    if (current.length) menu.setDefaultRoles(current);
+    return new ActionRowBuilder().addComponents(menu);
+  });
+}
+
+function channelPage(ctx, page) {
+  return CHANNEL_SLOTS.slice(page * PAGE, page * PAGE + PAGE).map((slot, n) => {
+    const index = page * PAGE + n;
+    const menu = new ChannelSelectMenuBuilder()
+      .setCustomId(`setup:channel:${index}`)
+      .setPlaceholder(slot.label)
+      .setChannelTypes(slot.types ?? TEXT)
+      .setMinValues(0)
+      .setMaxValues(1);
+    const current = getPath(ctx.cfg, slot.path);
+    if (current && ctx.client.channels.cache.has(current)) menu.setDefaultChannels([current]);
+    return new ActionRowBuilder().addComponents(menu);
+  });
+}
+
+function describe(ctx) {
+  const role = (id) => (id ? `<@&${id}>` : '—');
+  const lines = ROLE_SLOTS.map((s) => {
+    const v = ids(getPath(ctx.cfg, s.path), s);
+    return `**${s.label}:** ${v.length ? v.map(role).join(' ') : '—'}`;
+  });
+  const chans = CHANNEL_SLOTS.map((s) => {
+    const v = getPath(ctx.cfg, s.path);
+    return `**${s.label}:** ${v ? `<#${v}>` : '—'}`;
+  });
+  return [embed('info', 'Роли', lines.join('\n')), embed('info', 'Каналы', chans.join('\n'))];
+}
+
+export default {
+  name: 'setup',
+  commands: [
+    new SlashCommandBuilder()
+      .setName('setup')
+      .setDescription('Настройка бота: роли и каналы')
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+      .addSubcommand((s) => s.setName('roles').setDescription('Выбрать роли'))
+      .addSubcommand((s) => s.setName('channels').setDescription('Выбрать каналы'))
+      .addSubcommand((s) => s.setName('show').setDescription('Текущие настройки'))
+      .addSubcommand((s) => s.setName('roles-list').setDescription('Выгрузить все роли сервера с ID')),
+  ],
+
+  async onCommand(i, ctx) {
+    ctx.require(i, LEVEL.admin);
+    const sub = i.options.getSubcommand();
+    const ephemeral = MessageFlags.Ephemeral;
+
+    if (sub === 'roles' || sub === 'channels') {
+      const build = sub === 'roles' ? rolePage : channelPage;
+      const total = sub === 'roles' ? ROLE_SLOTS.length : CHANNEL_SLOTS.length;
+      const pages = Math.ceil(total / PAGE);
+      await i.reply({ content: `**${sub === 'roles' ? 'Роли' : 'Каналы'}** — выбор сохраняется сразу (1/${pages})`, components: build(ctx, 0), flags: ephemeral });
+      for (let p = 1; p < pages; p++) {
+        await i.followUp({ content: `(${p + 1}/${pages})`, components: build(ctx, p), flags: ephemeral });
+      }
+      return;
+    }
+    if (sub === 'show') return i.reply({ embeds: describe(ctx), flags: ephemeral });
+
+    if (sub === 'roles-list') {
+      const roles = [...(await i.guild.roles.fetch()).values()].sort((a, b) => b.position - a.position);
+      const lines = roles.map((r) => `${r.id}\t${r.name}\t${r.members.size} уч.${r.managed ? '\t(интеграция)' : ''}`);
+      const file = new AttachmentBuilder(Buffer.from(lines.join('\n'), 'utf8'), { name: 'roles.txt' });
+      return i.reply({ content: `Ролей: ${roles.length}`, files: [file], flags: ephemeral });
+    }
+  },
+
+  async onComponent(i, ctx, [kind, indexStr]) {
+    ctx.require(i, LEVEL.admin);
+    const slot = (kind === 'role' ? ROLE_SLOTS : CHANNEL_SLOTS)[Number(indexStr)];
+    if (!slot) throw new BotError('Неизвестная настройка');
+    let value;
+    if (kind === 'role') {
+      const me = i.guild.members.me;
+      const picked = [...i.roles.values()];
+      const tooHigh = picked.filter((r) => r.position >= me.roles.highest.position || r.managed);
+      if (tooHigh.length && !slot.path.startsWith('roles.admin') && !slot.path.startsWith('roles.moderator') && !slot.path.startsWith('roles.support')) {
+        throw new BotError(`Бот не может выдавать: ${tooHigh.map((r) => r.name).join(', ')} — подними роль бота выше`);
+      }
+      if (slot.self) value = picked.map((r) => ({ id: r.id, label: clip(r.name, 80) }));
+      else value = slot.multi ? picked.map((r) => r.id) : (picked[0]?.id ?? '');
+    } else {
+      value = i.values[0] ?? '';
+    }
+    saveSetting(ctx.cfg, ctx.db, slot.path, value);
+    return i.reply({ content: `✅ ${slot.label}: сохранено`, flags: MessageFlags.Ephemeral });
+  },
+};

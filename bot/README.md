@@ -45,12 +45,12 @@ Discord-бот и служба управления сервером в одно
    - скопируй токен в `bot/.env` (`DISCORD_TOKEN`).
 2. **Приглашение бота:** OAuth2 → URL Generator → `bot` + `applications.commands`, право **Administrator**.
    В настройках ролей Discord-сервера подними роль бота **выше всех ролей персонала**, иначе антинюк и модерация не сработают.
-3. **На хостинге сайта:**
+3. **На хостинге сайта** (Node.js 22.13 или новее):
    ```bash
    git clone … && cd …
    npm ci --omit=dev
    node tools/keygen.js site bot/keys           # bot/keys/site_private.pem остаётся здесь
-   cp bot/config.example.json bot/config.json   # вписать ID ролей и каналов (ПКМ → Копировать ID)
+   cp bot/config.example.json bot/config.json   # достаточно вписать guildId, остальное — через /setup
    cp bot/.env.example bot/.env                 # токены
    ```
    Положи `agent_public.pem` с VDS (`lx-agent.exe pubkey`) в `bot/keys/`, а `bot/keys/site_public.pem` — на VDS.
@@ -64,7 +64,8 @@ Discord-бот и служба управления сервером в одно
    ```
    `/api/` наружу не открывай: админка сайта обращается к нему локально, на `http://127.0.0.1:3100/api/…`.
 5. **Запуск:** `pm2 start bot/src/index.js --name blackout-bot` (или systemd).
-6. **В Discord:** `/panel verify`, `/panel applications`, `/panel tickets`, `/panel roles` — в нужных каналах.
+6. **В Discord:** `/setup roles` и `/setup channels` — выбрать роли и каналы из списков (ID копировать не нужно,
+   `/setup show` — проверить, `/setup roles-list` — выгрузить все роли сервера с ID). Затем `/panel verify`, `/panel applications`, `/panel tickets`, `/panel roles` — в нужных каналах.
 7. **На сервере DayZ:** в `serverDZ.cfg` выставь `enableWhitelist = 1;`. Агенту укажи
    `wss://blackoutstalkerrp.ru/agent-ws` и `agentId` `blackout-main`.
 

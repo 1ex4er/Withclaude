@@ -174,3 +174,15 @@ test('HTTP: старт привязки, неверный токен, API тол
   }
 });
 
+
+test('настройки из /setup накладываются на конфиг и переживают перезапуск', async () => {
+  const { applySettings, saveSetting } = await import('../bot/src/settings.js');
+  const db = openDb(':memory:');
+  const cfg = { roles: { admin: [], verified: '' }, channels: {} };
+  saveSetting(cfg, db, 'roles.admin', ['1', '2']);
+  saveSetting(cfg, db, 'channels.modLog', '3');
+  assert.deepEqual(cfg.roles.admin, ['1', '2']);
+  const fresh = applySettings({ roles: { admin: [], verified: '' }, channels: {} }, db);
+  assert.deepEqual(fresh.roles.admin, ['1', '2']);
+  assert.equal(fresh.channels.modLog, '3');
+});

@@ -5,7 +5,7 @@
   "description": "Управление DayZ-сервером Blackout с сайта: агент для Windows VDS + модуль для сайта",
   "type": "module",
   "engines": {
-    "node": ">=20.12"
+    "node": ">=22.13"
   },
   "scripts": {
     "agent": "node agent/src/main.js run",
@@ -16,7 +16,6 @@
     "bot": "node bot/src/index.js"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
     "discord.js": "^14.27.0",
     "ws": "^8.18.0"
   },
