@@ -14,7 +14,7 @@ import {
 import { banFields, checkAll, hasBans } from '../bancheck.js';
 import { BotError } from '../core.js';
 import { resolveSteamInput } from '../steamid.js';
-import { LEVEL, embed } from '../util.js';
+import { LEVEL, embed, ts } from '../util.js';
 
 const profile = (steamId) => `https://steamcommunity.com/profiles/${steamId}`;
 export const steamLabel = (link) =>
@@ -121,18 +121,21 @@ export default {
         if (previous && previous !== steamId) await ctx.whitelist.change('remove', previous);
         await ctx.whitelist.change('add', steamId, member.user.tag);
       }
-      ctx.audit('🔗 Привязан Steam', {
-        Участник: `<@${discordId}>`,
-        Steam: `[${steamId}](${profile(steamId)})`,
-        Способ: method === 'manual' ? 'указан вручную (не подтверждён)' : 'вход через Steam',
-      });
-      if (ctx.cfg.banCheck.alertOnLink) {
-        const results = await checkAll(ctx.cfg, steamId);
-        if (hasBans(results)) {
-          const e = embed('bad', '🚩 У игрока найдены баны', `<@${discordId}> · [${steamId}](${profile(steamId)})`).addFields(banFields(results));
-          ctx.post('modLog', { embeds: [e] });
-        }
-      }
+      // Одна сводка: Discord-аккаунт, Steam, баны и активность.
+      const results = ctx.cfg.banCheck.alertOnLink ? await checkAll(ctx.cfg, steamId).catch(() => []) : [];
+      const banned = hasBans(results);
+      const e = embed(banned ? 'bad' : 'info', banned ? '🚩 Привязан Steam — найдены баны' : '🔗 Привязан Steam')
+        .setThumbnail(member.user.displayAvatarURL())
+        .addFields(
+          { name: 'Участник', value: `<@${discordId}>\n${member.user.tag}`, inline: true },
+          { name: 'Discord создан', value: `${ts(member.user.createdTimestamp, 'D')}\n${ts(member.user.createdTimestamp)}`, inline: true },
+          { name: 'На сервере с', value: member.joinedTimestamp ? ts(member.joinedTimestamp, 'D') : '—', inline: true },
+          { name: 'Steam', value: `[${steamId}](${profile(steamId)})`, inline: true },
+          { name: 'Способ', value: method === 'manual' ? 'вписан вручную\n(не подтверждён)' : 'вход через Steam', inline: true },
+          { name: 'Предупреждения', value: String(ctx.db.prepare('SELECT COUNT(*) n FROM warns WHERE discord_id = ?').get(discordId).n), inline: true },
+        )
+        .addFields(ctx.cfg.banCheck.alertOnLink ? banFields(results) : []);
+      ctx.post('modLog', { embeds: [e] });
       if (method !== 'manual') member.send({ embeds: [embed('ok', 'Steam привязан', `Аккаунт [${steamId}](${profile(steamId)}) привязан к Discord.`)] }).catch(() => {});
     };
   },

@@ -9,6 +9,7 @@ import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
 import { AgentLink } from './agent.js';
 import { loadConfig } from './config.js';
 import { createContext, createRouter } from './core.js';
+import { setBanCheckProxy } from './bancheck.js';
 import { openDb } from './db.js';
 import { proxiedMakeRequest } from './proxy-rest.js';
 import { createHttpServer } from './http.js';
@@ -30,6 +31,7 @@ const db = openDb(cfg.dbFile);
 applySettings(cfg, db); // роли и каналы, выбранные через /setup
 const links = new Links(db);
 const agent = new AgentLink(cfg, log);
+if (proxyAgent) setBanCheckProxy(proxyAgent);
 
 const client = new Client({
   intents: [

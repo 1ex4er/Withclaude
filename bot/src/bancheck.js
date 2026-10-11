@@ -7,8 +7,35 @@
 //     "listField": "bans", "reasonField": "reason", "projectField": "project", "dateField": "date" }
 //   или вместо listField: "bannedField": "banned", "reasonField": "reason"
 
+import https from 'node:https';
+
 const DAYZ_APP_ID = 221100;
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 10000;
+
+// Запросы к Steam можно пустить через тот же прокси, что и Discord (в РФ Steam бывает недоступен).
+let proxyAgent = null;
+export function setBanCheckProxy(agent) {
+  proxyAgent = agent;
+}
+
+function proxyFetch(agent) {
+  return (url, { headers = {}, signal } = {}) =>
+    new Promise((resolve, reject) => {
+      const req = https.request(url, { headers, agent, signal }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, json: async () => JSON.parse(text), text: async () => text });
+        });
+        res.on('error', reject);
+      });
+      req.on('error', reject);
+      req.end();
+    });
+}
+
+const defaultFetch = (...args) => (proxyAgent ? proxyFetch(proxyAgent)(...args) : fetch(...args));
 
 const pick = (obj, field) => (field ? String(field).split('.').reduce((o, k) => (o == null ? o : o[k]), obj) : undefined);
 
@@ -18,7 +45,7 @@ async function getJson(fetchImpl, url, headers = {}) {
   return res.json();
 }
 
-export async function checkSteam(steamId, apiKey, fetchImpl = fetch) {
+export async function checkSteam(steamId, apiKey, fetchImpl = defaultFetch) {
   const base = 'https://api.steampowered.com';
   const q = `key=${encodeURIComponent(apiKey)}&steamids=${steamId}`;
   const [bans, summary, games] = await Promise.all([
@@ -43,11 +70,15 @@ export async function checkSteam(steamId, apiKey, fetchImpl = fetch) {
       createdAt: p.timecreated ? p.timecreated * 1000 : null,
       publicProfile: p.communityvisibilitystate === 3,
       dayzHours: dayz ? Math.round(dayz.playtime_forever / 60) : null,
+      dayzHours2w: dayz ? Math.round((dayz.playtime_2weeks ?? 0) / 60) : null,
+      lastOnline: p.lastlogoff ? p.lastlogoff * 1000 : null,
+      inGame: p.gameextrainfo ?? null,
+      country: p.loccountrycode ?? null,
     },
   };
 }
 
-export async function checkProvider(provider, steamId, fetchImpl = fetch) {
+export async function checkProvider(provider, steamId, fetchImpl = defaultFetch) {
   const url = provider.url.replace('{steamId}', encodeURIComponent(steamId));
   const headers = {};
   const token = provider.tokenEnv ? process.env[provider.tokenEnv] : null;
@@ -68,7 +99,7 @@ export async function checkProvider(provider, steamId, fetchImpl = fetch) {
 }
 
 // Все проверки параллельно; ошибка одной базы не мешает остальным.
-export async function checkAll(cfg, steamId, fetchImpl = fetch) {
+export async function checkAll(cfg, steamId, fetchImpl = defaultFetch) {
   const jobs = [];
   if (process.env.STEAM_API_KEY) jobs.push(checkSteam(steamId, process.env.STEAM_API_KEY, fetchImpl));
   for (const p of cfg.banCheck.providers) jobs.push(checkProvider(p, steamId, fetchImpl).catch((e) => Promise.reject(Object.assign(e, { source: p.name }))));
@@ -76,10 +107,13 @@ export async function checkAll(cfg, steamId, fetchImpl = fetch) {
   return settled.map((s) => (s.status === 'fulfilled' ? s.value : { source: s.reason.source ?? 'Steam', error: s.reason.message }));
 }
 
-// Поля для embed: сводка по всем базам.
+// Поля для embed: баны по каждой базе + сведения о Steam-профиле.
+const dts = (ms, style = 'D') => `<t:${Math.floor(ms / 1000)}:${style}>`;
+
 export function banFields(results) {
-  if (!results.length) return [{ name: 'Проверка банов', value: 'Не настроена (STEAM_API_KEY / banCheck.providers)' }];
-  return results.map((r) => {
+  if (!results.length) return [{ name: '🔎 Баны', value: 'Проверка не настроена: добавь STEAM_API_KEY в bot/.env' }];
+  const fields = [];
+  for (const r of results) {
     let value;
     if (r.error) value = `⚠️ не удалось проверить: ${r.error}`;
     else if (!r.banned) value = '✅ банов нет';
@@ -88,16 +122,21 @@ export function banFields(results) {
         .slice(0, 8)
         .map((d) => `⛔ ${d.reason}${d.project ? ` — ${d.project}` : ''}${d.date ? ` (${d.date})` : ''}`)
         .join('\n');
+    fields.push({ name: `🔎 Баны · ${r.source}`, value: value.slice(0, 1024) });
     if (r.info) {
-      const extra = [
-        r.info.createdAt ? `аккаунт с ${new Date(r.info.createdAt).toLocaleDateString('ru-RU')}` : 'дата создания скрыта',
-        r.info.dayzHours != null ? `DayZ: ${r.info.dayzHours} ч` : 'часы DayZ скрыты',
-        r.info.publicProfile ? null : 'профиль закрыт',
+      const i = r.info;
+      const lines = [
+        i.name && `Ник: **${i.name}**`,
+        i.createdAt ? `Аккаунт создан: ${dts(i.createdAt)} (${dts(i.createdAt, 'R')})` : 'Дата создания скрыта',
+        i.dayzHours != null ? `DayZ: **${i.dayzHours} ч**${i.dayzHours2w ? `, за 2 недели ${i.dayzHours2w} ч` : ''}` : 'Часы DayZ скрыты',
+        i.inGame ? `Сейчас играет: ${i.inGame}` : i.lastOnline ? `Был в сети: ${dts(i.lastOnline, 'R')}` : null,
+        i.country && `Страна: ${i.country}`,
+        i.publicProfile ? null : '🔒 Профиль закрыт',
       ].filter(Boolean);
-      value += `\n${extra.join(' · ')}`;
+      fields.push({ name: '🎮 Steam-профиль', value: lines.join('\n').slice(0, 1024) });
     }
-    return { name: `🔎 ${r.source}`, value: value.slice(0, 1024) };
-  });
+  }
+  return fields;
 }
 
 export const hasBans = (results) => results.some((r) => r.banned);
