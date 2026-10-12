@@ -33,6 +33,9 @@ test('строка запуска собирается из конфига и п
     '-mod=@CF',
   ]);
   assert.throws(() => s.setMods({ mods: ['@CF;-something'], serverMods: [] }), { code: 'bad_params' });
+  // Мод из списка удалён с диска — запуск без него, а не падение сервера.
+  s.state.set('mods', ['@CF', '@Deleted']);
+  assert.ok(s.buildArgs().includes('-mod=@CF'));
   assert.throws(() => s.setMods({ mods: ['@Missing'], serverMods: [] }), { code: 'not_found' });
   assert.throws(() => s.setMods({ mods: ['@..'], serverMods: [] }));
 });

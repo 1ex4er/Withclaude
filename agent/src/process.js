@@ -105,7 +105,16 @@ export class ServerProcess extends EventEmitter {
 
   // Строка запуска собирается только из конфига агента и проверенного списка модов.
   buildArgs() {
-    const { mods, serverMods } = this.mods();
+    // Мод удалили (например, в панели хостинга), а из списка нет: без папки сервер не стартует —
+    // такой мод пропускаем с предупреждением.
+    const present = (list) =>
+      list.filter((m) => {
+        if (fs.existsSync(path.join(this.cfg.dir, m))) return true;
+        this.log.warn(`папки мода ${m} нет — сервер запускается без него (убери его из списка модов)`);
+        return false;
+      });
+    const mods = present(this.mods().mods);
+    const serverMods = present(this.mods().serverMods);
     // Полные пути, как у панелей хостинга: относительный -BEpath DayZ ищет не от папки сервера,
     // и BattlEye брал чужой BEServer_x64.cfg (без пароля — RCon не включался).
     const abs = (p) => path.resolve(this.cfg.dir, p);
