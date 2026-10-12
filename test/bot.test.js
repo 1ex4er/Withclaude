@@ -510,3 +510,44 @@ test('HTTP-нажатия: подпись Discord проверяется, пер
   await new Promise((res) => setTimeout(res, 20));
   assert.deepEqual(sent, ['https://discord.com/api/v10/webhooks/app/tok']);
 });
+
+test('обновления модов: устаревшие по дате Workshop, ручной ID, в мод-лог один раз', async () => {
+  const { checkModUpdates, findOutdated } = await import('../bot/src/modules/modupdates.js');
+  const H = 3_600_000;
+  const mods = [
+    { folder: '@CF', enabled: true, publishedId: '1559212036', name: 'CF', filesUpdatedAt: 10 * H },
+    { folder: '@Blackout RP', enabled: true, publishedId: '3799885501', name: 'Blackout RP', filesUpdatedAt: 10 * H },
+    { folder: '@Blacout RP Weapons', enabled: true, publishedId: '0', name: 'W', filesUpdatedAt: 10 * H },
+    { folder: '@Servermod', enabled: true, filesUpdatedAt: 1 },
+    { folder: '@Old', enabled: false, publishedId: '5', filesUpdatedAt: 1 },
+  ];
+  const details = { 1559212036: { title: 'CF', updatedAt: 9 * H }, 3799885501: { title: 'Blackout RP', updatedAt: 12 * H }, 3812171981: { title: 'Weapons', updatedAt: 11 * H } };
+  const rows = findOutdated(mods, details, { '@Blacout RP Weapons': '3812171981' });
+  assert.deepEqual(rows.filter((r) => r.outdated).map((r) => r.folder), ['@Blackout RP', '@Blacout RP Weapons']);
+  assert.equal(rows.find((r) => r.folder === '@Servermod').id, null);
+  assert.ok(!rows.some((r) => r.folder === '@Old'));
+
+  const db = openDb(':memory:');
+  const posts = [];
+  const ctx = { db, cfg: { modUpdates: { ids: { '@Blacout RP Weapons': '3812171981' } } }, agent: { online: true, call: async () => mods }, post: async (ch, p) => posts.push([ch, p]) };
+  let asked = '';
+  const fakeFetch = async (url) => {
+    asked = url;
+    return { ok: true, json: async () => ({ response: { publishedfiledetails: Object.entries(details).map(([id, d]) => ({ publishedfileid: id, result: 1, title: d.title, time_updated: d.updatedAt / 1000 })) } }) };
+  };
+  const prev = process.env.STEAM_API_KEY;
+  process.env.STEAM_API_KEY = 'k';
+  try {
+    const r = await checkModUpdates(ctx, fakeFetch);
+    assert.equal(r.mods.filter((m) => m.outdated).length, 2);
+    assert.match(decodeURIComponent(asked), /publishedfileids\[2\]=3812171981/);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0][0], 'modLog');
+    await checkModUpdates(ctx, fakeFetch);
+    assert.equal(posts.length, 1, 'то же обновление второй раз не объявляется');
+    assert.equal(db.kv.get('mods.updates').mods.length, 4);
+  } finally {
+    if (prev === undefined) delete process.env.STEAM_API_KEY;
+    else process.env.STEAM_API_KEY = prev;
+  }
+});

@@ -20,6 +20,23 @@ export function readMeta(modDir) {
   };
 }
 
+// Когда файлы мода последний раз менялись на сервере (meta.cpp и addons\*.pbo): сравнивается
+// с датой обновления в Workshop, чтобы сайт и бот подсказали, какой мод пора обновить.
+export function filesUpdatedAt(modDir) {
+  let latest = 0;
+  const stamp = (file) => {
+    try {
+      latest = Math.max(latest, fs.statSync(file).mtimeMs);
+    } catch {}
+  };
+  stamp(path.join(modDir, 'meta.cpp'));
+  const addons = path.join(modDir, 'addons');
+  try {
+    for (const f of fs.readdirSync(addons)) if (/\.pbo$/i.test(f)) stamp(path.join(addons, f));
+  } catch {}
+  return latest ? Math.round(latest) : null;
+}
+
 export class ModManager {
   constructor({ serverDir, steamcmd, steamUser, log }) {
     this.serverDir = serverDir;
@@ -38,6 +55,7 @@ export class ModManager {
         enabled: on.has(e.name),
         serverSide: enabled.serverMods.includes(e.name),
         ...readMeta(path.join(this.serverDir, e.name)),
+        filesUpdatedAt: filesUpdatedAt(path.join(this.serverDir, e.name)),
       }));
   }
 

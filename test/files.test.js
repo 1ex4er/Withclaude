@@ -87,3 +87,17 @@ test('checkXml', () => {
   assert.match(checkXml('<types><!-- not closed </types>'), /строка 1/);
   assert.match(checkXml(''), /нет корневого/);
 });
+
+test('время обновления мода — по meta.cpp и addons/*.pbo', async () => {
+  const { filesUpdatedAt } = await import('../agent/src/mods.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-mod-'));
+  fs.mkdirSync(path.join(dir, 'addons'));
+  fs.writeFileSync(path.join(dir, 'meta.cpp'), 'publishedid = 1;');
+  fs.writeFileSync(path.join(dir, 'addons', 'a.pbo'), 'x');
+  fs.writeFileSync(path.join(dir, 'addons', 'readme.txt'), 'x');
+  fs.utimesSync(path.join(dir, 'meta.cpp'), 1000, 1000);
+  fs.utimesSync(path.join(dir, 'addons', 'a.pbo'), 2000, 2000);
+  fs.utimesSync(path.join(dir, 'addons', 'readme.txt'), 9000, 9000);
+  assert.equal(filesUpdatedAt(dir), 2_000_000);
+  assert.equal(filesUpdatedAt(path.join(dir, 'nope')), null);
+});

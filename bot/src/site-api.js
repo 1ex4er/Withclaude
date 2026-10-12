@@ -5,6 +5,9 @@
 //   POST /api/link      { discordId, steamId }        — привязка, подтверждённая сайтом (вход Steam + Discord OAuth)
 //   GET  /api/whitelist                    — SteamID из whitelist.txt (нужен агент)
 //   POST /api/whitelist { op, steamId, note }         — add | remove; без агента ждёт в очереди
+//   GET  /api/mods/updates[?refresh=1]     — какие моды обновились в Workshop
+
+import { checkModUpdates } from './modules/modupdates.js';
 
 const STEAM_RE = /^\d{17}$/;
 const DISCORD_RE = /^\d{17,20}$/;
@@ -56,6 +59,12 @@ export function createSiteApi(ctx) {
         ctx.emitLinked?.(discordId, steamId, r.previous, 'site').catch((e) => ctx.log.warn(`после привязки с сайта: ${e.message}`));
       }
       return ok({ ok: true, changed: r.changed, previous: r.previous });
+    },
+
+    // Последняя проверка обновлений модов (modules/modupdates.js); ?refresh=1 — проверить сейчас.
+    'GET /api/mods/updates': async (url) => {
+      if (url.searchParams.get('refresh') === '1') await checkModUpdates(ctx);
+      return ok(ctx.db.kv.get('mods.updates', null));
     },
 
     'GET /api/whitelist': async () => ok({ ids: await ctx.whitelist.list() }),

@@ -56,6 +56,8 @@ const DEFAULTS = {
   // RP-наказания: роль на каждый тип (выбираются в /setup roles).
   punishments: { roles: { nlr: '', nonrp: '', pg: '', rdm: '', meta: '', ban: '' } },
   backup: { keep: 14, intervalHours: 24 },
+  // Проверка обновлений модов в Workshop: ids — Workshop ID для модов без publishedid в meta.cpp ({"@Папка": "123"}).
+  modUpdates: { intervalMinutes: 30, ids: {} },
   automod: {
     exemptRoles: [],
     spam: { messages: 6, seconds: 8 },

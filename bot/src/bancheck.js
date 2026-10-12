@@ -36,6 +36,8 @@ function proxyFetch(agent) {
 }
 
 const defaultFetch = (...args) => (proxyAgent ? proxyFetch(proxyAgent)(...args) : fetch(...args));
+// GET к Steam с тем же прокси (используется и проверкой обновлений модов).
+export const steamFetch = defaultFetch;
 
 const pick = (obj, field) => (field ? String(field).split('.').reduce((o, k) => (o == null ? o : o[k]), obj) : undefined);
 
