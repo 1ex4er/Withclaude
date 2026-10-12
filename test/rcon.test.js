@@ -82,3 +82,16 @@ test('RCon: неверный пароль', async () => {
     be.sock.close();
   }
 });
+
+test('RCon: если первый пароль не подошёл, пробует следующий найденный и запоминает его', async () => {
+  const be = await fakeBE('pw');
+  const rcon = new BERcon({ host: '127.0.0.1', port: be.port, password: 'stale', passwords: ['stale', 'pw'], timeoutMs: 1000 });
+  try {
+    await rcon.connect();
+    assert.equal(rcon.connected, true);
+    assert.equal(rcon.password, 'pw');
+  } finally {
+    rcon.close();
+    be.sock.close();
+  }
+});

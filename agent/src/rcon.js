@@ -37,11 +37,13 @@ const COMMAND = 0x01;
 const SERVER_MSG = 0x02;
 
 export class BERcon extends EventEmitter {
-  constructor({ host, port, password, timeoutMs = 5000 }) {
+  // passwords — кандидаты по порядку (конфиги BattlEye, которые нашлись); подошедший запоминается.
+  constructor({ host, port, password, passwords = [], timeoutMs = 5000 }) {
     super();
     this.host = host;
     this.port = port;
-    this.password = password;
+    this.passwords = [...new Set([password, ...passwords].filter(Boolean))];
+    this.password = this.passwords[0] ?? null;
     this.timeoutMs = timeoutMs;
     this.socket = null;
     this.connected = false;
@@ -54,6 +56,20 @@ export class BERcon extends EventEmitter {
   async connect() {
     if (this.connected) return;
     if (!this.password) throw new AgentError('rcon_unconfigured', 'RCON_PASSWORD не задан в .env');
+    // Неверный пароль — пробуем следующий найденный (панель могла оставить старый конфиг рядом с действующим).
+    const order = [this.password, ...this.passwords.filter((p) => p !== this.password)];
+    for (let i = 0; i < order.length; i++) {
+      try {
+        await this.#login(order[i]);
+        this.password = order[i];
+        return;
+      } catch (err) {
+        if (err.code !== 'rcon_auth' || i === order.length - 1) throw err;
+      }
+    }
+  }
+
+  async #login(password) {
     this.close();
     const socket = dgram.createSocket('udp4');
     this.socket = socket;
@@ -73,7 +89,7 @@ export class BERcon extends EventEmitter {
         this.loginWaiter = null;
         ok ? resolve() : reject(new AgentError('rcon_auth', 'RCon: неверный пароль'));
       };
-      this.#send(buildPacket(LOGIN, Buffer.from(this.password, 'ascii')));
+      this.#send(buildPacket(LOGIN, Buffer.from(password, 'ascii')));
     }).catch((err) => {
       this.close();
       throw err;

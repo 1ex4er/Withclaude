@@ -111,32 +111,29 @@ export function isAllowed(allow, action) {
 }
 
 // Пароль и порт RCon читаются прямо из конфига BattlEye — вписывать их ещё куда-то не нужно.
-// Пароль может лежать в одном файле, а порт — в другом (панели хостингов пишут RConPort только в
-// BEServer_x64_active_*.cfg или в profiles\BattlEye): порт берётся из файла с паролем, иначе из любого,
-// в первую очередь из active — его BattlEye создаёт из того, с чем реально запущен.
+// Панели хостингов раскладывают их по разным файлам (ark-hoster: пароль в battleye\BEServer_x64.cfg
+// устаревший, действующий — в BEServer_x64_active_*.cfg, RConPort — только в active и profiles\BattlEye).
+// Первым идёт самый свежий active: его BattlEye создаёт при запуске из того, с чем реально работает.
+// passwords — все найденные пароли по этому порядку: RCon перебирает их, если первый не подошёл.
 export function readBattlEyeConfig(server) {
   const dirs = [path.resolve(server.dir, server.bePath), path.join(server.dir, server.profiles, 'BattlEye')];
   const files = [];
   for (const dir of dirs) {
     if (!fs.existsSync(dir)) continue;
-    files.push(
-      ...fs
-        .readdirSync(dir)
-        .filter((f) => /^beserver_x64(_active_\w+)?\.cfg$/i.test(f))
-        .map((f) => {
-          const text = fs.readFileSync(path.join(dir, f), 'utf8');
-          return {
-            active: /_active_/i.test(f),
-            mtime: fs.statSync(path.join(dir, f)).mtimeMs,
-            password: /^\s*RConPassword\s+(\S+)/im.exec(text)?.[1] ?? null,
-            port: Number(/^\s*RConPort\s+(\d+)/im.exec(text)?.[1]) || null,
-          };
-        })
-        .sort((a, b) => Number(a.active) - Number(b.active) || b.mtime - a.mtime),
-    );
+    for (const f of fs.readdirSync(dir).filter((name) => /^beserver_x64(_active_\w+)?\.cfg$/i.test(name))) {
+      const text = fs.readFileSync(path.join(dir, f), 'utf8');
+      files.push({
+        active: /_active_/i.test(f),
+        mtime: fs.statSync(path.join(dir, f)).mtimeMs,
+        password: /^\s*RConPassword\s+(\S+)/im.exec(text)?.[1] ?? null,
+        port: Number(/^\s*RConPort\s+(\d+)/im.exec(text)?.[1]) || null,
+      });
+    }
   }
+  files.sort((a, b) => Number(b.active) - Number(a.active) || b.mtime - a.mtime);
+  const passwords = [...new Set(files.map((f) => f.password).filter(Boolean))];
+  if (!passwords.length) return { password: null, port: null, passwords };
   const withPassword = files.find((f) => f.password);
-  if (!withPassword) return { password: null, port: null };
-  const port = withPassword.port ?? [...files].sort((a, b) => Number(b.active) - Number(a.active)).find((f) => f.port)?.port ?? null;
-  return { password: withPassword.password, port };
+  const port = withPassword.port ?? files.find((f) => f.port)?.port ?? null;
+  return { password: passwords[0], port, passwords };
 }
