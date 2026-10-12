@@ -231,7 +231,8 @@ export class ServerProcess extends EventEmitter {
       cwd: this.cfg.dir,
       detached: true,
       stdio: 'ignore',
-      windowsHide: true,
+      // showWindow — окно консоли DayZ на рабочем столе (видно, только если агент запущен в сеансе пользователя).
+      windowsHide: !this.cfg.showWindow,
     });
     child.unref();
     await new Promise((resolve, reject) => {

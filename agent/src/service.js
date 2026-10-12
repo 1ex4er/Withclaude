@@ -10,15 +10,22 @@ export const TASK_NAME = 'LX Agent';
 
 const xmlEscape = (s) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]);
 
-export function taskXml({ exe, args, workDir, user }) {
+export function taskXml({ exe, args, workDir, user, interactive = false }) {
   // Без пользователя — от имени SYSTEM. С пользователем — от его имени (рекомендуется отдельный без прав админа).
-  const principal = user
-    ? `<UserId>${xmlEscape(user)}</UserId><LogonType>Password</LogonType><RunLevel>LeastPrivilege</RunLevel>`
-    : '<UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel>';
+  // interactive — в сеансе пользователя при его входе (RDP): окна агента и DayZ-сервера видны на рабочем столе,
+  // но без вошедшего пользователя агент не работает (после перезагрузки Windows — до входа по RDP).
+  const principal = interactive
+    ? `<UserId>${xmlEscape(user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel>`
+    : user
+      ? `<UserId>${xmlEscape(user)}</UserId><LogonType>Password</LogonType><RunLevel>LeastPrivilege</RunLevel>`
+      : '<UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel>';
+  const trigger = interactive
+    ? `<LogonTrigger><Enabled>true</Enabled><UserId>${xmlEscape(user)}</UserId><Delay>PT10S</Delay></LogonTrigger>`
+    : '<BootTrigger><Enabled>true</Enabled><Delay>PT30S</Delay></BootTrigger>';
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>Агент управления DayZ-сервером (LX)</Description></RegistrationInfo>
-  <Triggers><BootTrigger><Enabled>true</Enabled><Delay>PT30S</Delay></BootTrigger></Triggers>
+  <Triggers>${trigger}</Triggers>
   <Principals><Principal id="Author">${principal}</Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
@@ -44,13 +51,14 @@ function requireWindows() {
   if (process.platform !== 'win32') throw new Error('Установка службы доступна только на Windows');
 }
 
-export function install({ exe, args, workDir, user, password }) {
+export function install({ exe, args, workDir, user, password, interactive = false }) {
   requireWindows();
+  if (interactive && !user) user = `${process.env.USERDOMAIN}\\${process.env.USERNAME}`;
   const xmlFile = path.join(os.tmpdir(), `lx-agent-task-${process.pid}.xml`);
-  fs.writeFileSync(xmlFile, '\uFEFF' + taskXml({ exe, args, workDir, user }), 'utf16le');
+  fs.writeFileSync(xmlFile, '\uFEFF' + taskXml({ exe, args, workDir, user, interactive }), 'utf16le');
   try {
     const args = ['/Create', '/TN', TASK_NAME, '/XML', xmlFile, '/F'];
-    if (user) args.push('/RU', user, '/RP', password ?? '');
+    if (user && !interactive) args.push('/RU', user, '/RP', password ?? '');
     execFileSync('schtasks.exe', args, { stdio: 'inherit', windowsHide: true });
     execFileSync('schtasks.exe', ['/Run', '/TN', TASK_NAME], { stdio: 'inherit', windowsHide: true });
   } finally {

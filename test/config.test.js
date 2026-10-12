@@ -73,3 +73,15 @@ test('RCon как на ark-hoster: действующий пароль и пор
   fs.writeFileSync(path.join(dir, 'battleye', 'BEServer_x64_active_28a9.cfg'), 'RConPort 2305\n');
   assert.deepEqual(readBattlEyeConfig(be), { password: 'stale', port: 2305, passwords: ['stale'] });
 });
+
+test('задача автозапуска: SYSTEM при загрузке или в сеансе пользователя при входе (--interactive)', async () => {
+  const { taskXml } = await import('../agent/src/service.js');
+  const base = { exe: 'C:/LXAgent/lx-agent.exe', args: 'run', workDir: 'C:/LXAgent' };
+  const system = taskXml(base);
+  assert.match(system, /<UserId>S-1-5-18<\/UserId>/);
+  assert.match(system, /<BootTrigger>/);
+  const desk = taskXml({ ...base, user: 'WIN-1/Администратор', interactive: true });
+  assert.match(desk, /<LogonType>InteractiveToken<\/LogonType><RunLevel>HighestAvailable<\/RunLevel>/);
+  assert.match(desk, /<LogonTrigger><Enabled>true<\/Enabled><UserId>WIN-1\/Администратор<\/UserId>/);
+  assert.doesNotMatch(desk, /BootTrigger/);
+});

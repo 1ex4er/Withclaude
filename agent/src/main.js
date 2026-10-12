@@ -4,6 +4,7 @@
 //   lx-agent.exe init --server-dir C:\DayZServer --site-url wss://… --site-key site_public.pem --agent-id blackout-main
 //   lx-agent.exe pubkey        показать публичный ключ агента (для подключения к своему сайту)
 //   lx-agent.exe install [--user .\dayzagent --password …]   автозапуск при загрузке Windows
+//   lx-agent.exe install --interactive   при входе текущего пользователя: окна агента и сервера видны (нужен вход по RDP)
 //   lx-agent.exe uninstall
 //   lx-agent.exe run           запуск в этом окне (по умолчанию)
 //   lx-agent.exe version
@@ -99,8 +100,13 @@ async function main() {
         workDir: dir,
         user: opts.user,
         password: opts.password,
+        interactive: opts.interactive === true,
       });
-      console.log('Агент добавлен в автозапуск и запущен (Планировщик заданий → "LX Agent"). Журнал: agent.log');
+      console.log(
+        opts.interactive === true
+          ? 'Агент запускается при входе этого пользователя: окна агента и сервера на рабочем столе. Из сеанса не выходи — просто закрывай RDP. Журнал: agent.log'
+          : 'Агент добавлен в автозапуск и запущен (Планировщик заданий → "LX Agent"). Журнал: agent.log',
+      );
       return;
     case 'uninstall':
       uninstall();
