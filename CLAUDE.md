@@ -29,7 +29,7 @@
   `/api/` бота наружу НЕ открыт: сайт ходит к нему локально.
 - Приём нажатий по HTTP включён (`DISCORD_PUBLIC_KEY`); Interactions Endpoint URL —
   `https://blackoutstalkerrp.ru/discord/interactions`.
-- Сайт blackoutstalkerrp.ru (Next.js, `/srv/blackout-site`, исходники `E:\moddinglackout-web` у владельца)
+- Сайт blackoutstalkerrp.ru (Next.js, `/srv/blackout-site`, исходники `E:\modding\blackout-web` у владельца)
   связан с ботом: `BOT_API_URL=http://127.0.0.1:3100`, `BOT_API_TOKEN` = `API_TOKEN` бота. Админка сайта:
   «Сервер» (статус/старт/стоп/рестарт/расписание, RCon, баны, логи), «Конфиги» (редактор с бэкапами),
   карточка игрока (варны, наказания, анкеты, вайтлист). Привязка Discord на сайте уходит боту (`method='site'`).
