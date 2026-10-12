@@ -95,3 +95,18 @@ test('RCon: если первый пароль не подошёл, пробуе
     be.sock.close();
   }
 });
+
+test('RCon: перед подключением перечитывает порт и пароли (новый active-конфиг после запуска сервера)', async () => {
+  const be = await fakeBE('fresh');
+  let asked = 0;
+  const rcon = new BERcon({ host: '127.0.0.1', port: 1, password: 'old', timeoutMs: 1000, resolve: () => (asked++, { port: be.port, passwords: ['fresh'] }) });
+  try {
+    await rcon.connect();
+    assert.equal(asked, 1);
+    assert.equal(rcon.port, be.port);
+    assert.equal(rcon.password, 'fresh');
+  } finally {
+    rcon.close();
+    be.sock.close();
+  }
+});

@@ -38,12 +38,15 @@ const SERVER_MSG = 0x02;
 
 export class BERcon extends EventEmitter {
   // passwords — кандидаты по порядку (конфиги BattlEye, которые нашлись); подошедший запоминается.
-  constructor({ host, port, password, passwords = [], timeoutMs = 5000 }) {
+  // resolve() — перечитать порт и пароли перед каждым подключением: BattlEye при каждом запуске сервера
+  // пишет новый BEServer_x64_active_*.cfg, и настройки, прочитанные при старте агента, устаревают.
+  constructor({ host, port, password, passwords = [], timeoutMs = 5000, resolve = null }) {
     super();
     this.host = host;
     this.port = port;
     this.passwords = [...new Set([password, ...passwords].filter(Boolean))];
     this.password = this.passwords[0] ?? null;
+    this.resolve = resolve;
     this.timeoutMs = timeoutMs;
     this.socket = null;
     this.connected = false;
@@ -55,6 +58,16 @@ export class BERcon extends EventEmitter {
 
   async connect() {
     if (this.connected) return;
+    if (this.resolve) {
+      const fresh = this.resolve();
+      if (fresh.port) this.port = fresh.port;
+      const list = [...new Set((fresh.passwords ?? []).filter(Boolean))];
+      if (list.length) {
+        this.passwords = list;
+        // Подошедший раньше пароль пробуем первым, только если он всё ещё есть в конфигах.
+        if (!list.includes(this.password)) this.password = list[0];
+      }
+    }
     if (!this.password) throw new AgentError('rcon_unconfigured', 'RCON_PASSWORD не задан в .env');
     // Неверный пароль — пробуем следующий найденный (панель могла оставить старый конфиг рядом с действующим).
     const order = [this.password, ...this.passwords.filter((p) => p !== this.password)];

@@ -84,9 +84,18 @@ export async function runAgent(configPath) {
 
   const be = readBattlEyeConfig(cfg.server);
   const rconPort = cfg.rcon.port ?? be.port ?? 2306;
-  const rcon = new BERcon({ host: cfg.rcon.host, port: rconPort, password: process.env.RCON_PASSWORD || be.password, passwords: be.passwords });
+  const rcon = new BERcon({
+    host: cfg.rcon.host,
+    port: rconPort,
+    password: process.env.RCON_PASSWORD || be.password,
+    passwords: be.passwords,
+    resolve: () => {
+      const now = readBattlEyeConfig(cfg.server);
+      return { port: cfg.rcon.port ?? now.port ?? 2306, passwords: [process.env.RCON_PASSWORD, ...now.passwords] };
+    },
+  });
   rcon.on('connected', () => {
-    if (rcon.password !== (process.env.RCON_PASSWORD || be.password)) log.info('RCon: подошёл пароль из другого конфига BattlEye');
+    log.info(`RCon подключён (порт ${rcon.port})`);
   });
   if (!rcon.password) log.warn('пароль RCon не найден (beserver_x64.cfg или RCON_PASSWORD в .env) — RCon недоступен');
 
