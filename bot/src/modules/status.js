@@ -4,6 +4,18 @@ import { ActivityType, SlashCommandBuilder } from 'discord.js';
 import { embed, formatDuration, ts } from '../util.js';
 
 let cache = { at: 0, data: null };
+let slots = { at: 0, value: null };
+
+// Слоты — из maxPlayers в serverDZ.cfg (через агента, раз в 10 мин), иначе status.maxPlayers из config.json.
+async function maxPlayers(ctx) {
+  if (ctx.agent.online && Date.now() - slots.at > 10 * 60_000) {
+    slots.at = Date.now();
+    const cfg = await ctx.agent.call('files.read', { root: 'server', path: 'serverDZ.cfg' }, 'status').catch(() => null);
+    const value = Number(/^\s*maxPlayers\s*=\s*(\d+)/m.exec(cfg?.content ?? '')?.[1]);
+    if (value > 0) slots.value = value;
+  }
+  return slots.value ?? ctx.cfg.status.maxPlayers;
+}
 
 async function collect(ctx) {
   if (Date.now() - cache.at < 10_000 && cache.data) return cache.data;
@@ -14,12 +26,13 @@ async function collect(ctx) {
       data.players = await ctx.agent.call('rcon.players', {}, 'status').catch(() => null);
     }
   }
+  data.maxPlayers = await maxPlayers(ctx);
   cache = { at: Date.now(), data };
   return data;
 }
 
-function statusEmbed(ctx, { agent, status, players }) {
-  const { maxPlayers, connect } = ctx.cfg.status;
+function statusEmbed(ctx, { agent, status, players, maxPlayers }) {
+  const { connect } = ctx.cfg.status;
   let e;
   if (!agent) {
     e = embed('warn', '🟠 Нет связи с сервером', 'Агент на VDS не в сети. Статус неизвестен.');
@@ -45,7 +58,7 @@ async function refresh(ctx) {
     activities: [
       {
         type: ActivityType.Watching,
-        name: !data.agent ? 'нет связи с сервером' : !data.status?.running ? 'сервер выключен' : `${online ?? '?'}/${ctx.cfg.status.maxPlayers} в Зоне`,
+        name: !data.agent ? 'нет связи с сервером' : !data.status?.running ? 'сервер выключен' : `${online ?? '?'}/${data.maxPlayers} в Зоне`,
       },
     ],
     status: data.status?.running ? 'online' : 'idle',
