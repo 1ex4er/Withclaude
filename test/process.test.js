@@ -23,7 +23,15 @@ function setup() {
 
 test('строка запуска собирается из конфига и проверенных модов', () => {
   const s = setup();
-  assert.deepEqual(s.buildArgs(), ['-config=serverDZ.cfg', '-port=2302', '-profiles=profiles', '-BEpath=battleye', '-dologs', '-mod=@CF']);
+  const dir = s.cfg.dir;
+  assert.deepEqual(s.buildArgs(), [
+    `-config=${path.join(dir, 'serverDZ.cfg')}`,
+    '-port=2302',
+    `-profiles=${path.join(dir, 'profiles')}`,
+    `-BEpath=${path.join(dir, 'battleye')}`,
+    '-dologs',
+    '-mod=@CF',
+  ]);
   assert.throws(() => s.setMods({ mods: ['@CF;-something'], serverMods: [] }), { code: 'bad_params' });
   assert.throws(() => s.setMods({ mods: ['@Missing'], serverMods: [] }), { code: 'not_found' });
   assert.throws(() => s.setMods({ mods: ['@..'], serverMods: [] }));

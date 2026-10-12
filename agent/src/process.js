@@ -106,11 +106,14 @@ export class ServerProcess extends EventEmitter {
   // Строка запуска собирается только из конфига агента и проверенного списка модов.
   buildArgs() {
     const { mods, serverMods } = this.mods();
+    // Полные пути, как у панелей хостинга: относительный -BEpath DayZ ищет не от папки сервера,
+    // и BattlEye брал чужой BEServer_x64.cfg (без пароля — RCon не включался).
+    const abs = (p) => path.resolve(this.cfg.dir, p);
     const args = [
-      `-config=${this.cfg.config}`,
+      `-config=${abs(this.cfg.config)}`,
       `-port=${this.cfg.port}`,
-      `-profiles=${this.cfg.profiles}`,
-      `-BEpath=${this.cfg.bePath}`,
+      `-profiles=${abs(this.cfg.profiles)}`,
+      `-BEpath=${abs(this.cfg.bePath)}`,
       ...this.cfg.extraArgs,
     ];
     if (mods.length) args.push(`-mod=${mods.join(';')}`);

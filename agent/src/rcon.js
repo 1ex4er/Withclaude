@@ -109,6 +109,8 @@ export class BERcon extends EventEmitter {
     });
 
     this.connected = true;
+    // Нумерация команд в каждом сеансе BattlEye начинается с 0.
+    this.seq = 0;
     // BattlEye отключает клиента после 45 с тишины.
     this.keepAlive = setInterval(() => {
       this.command('').catch(() => this.close());
@@ -144,6 +146,9 @@ export class BERcon extends EventEmitter {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(seq);
+        // Нет ответа на команду — сеанс, скорее всего, уже сброшен BattlEye (агент мог «замереть»):
+        // закрываем, следующая команда войдёт заново.
+        this.close();
         reject(new AgentError('rcon_timeout', 'RCon не ответил'));
       }, this.timeoutMs);
       this.pending.set(seq, { resolve, reject, timer, parts: null });

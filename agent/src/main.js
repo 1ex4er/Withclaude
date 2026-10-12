@@ -92,11 +92,15 @@ async function main() {
       console.log(`Отпечаток: ${fingerprint(key.publicPem)}\nФайл: ${key.pubFile}`);
       return;
     }
-    case 'install':
+    case 'install': {
       loadOrCreateAgentKey(path.join(dir, 'keys'));
+      const runArgs = IS_EXE ? 'run' : `"${path.join(dir, 'src', 'main.js')}" run`;
+      // В сеансе пользователя агент работает без своего окна (conhost --headless): клик в консоль включал
+      // «Выделение» и замораживал агента. Окно DayZ-сервера — собственное окно сервера, оно остаётся видимым.
+      const headless = opts.interactive === true;
       install({
-        exe: process.execPath,
-        args: IS_EXE ? 'run' : `"${path.join(dir, 'src', 'main.js')}" run`,
+        exe: headless ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'conhost.exe') : process.execPath,
+        args: headless ? `--headless "${process.execPath}" ${runArgs}` : runArgs,
         workDir: dir,
         user: opts.user,
         password: opts.password,
@@ -104,10 +108,11 @@ async function main() {
       });
       console.log(
         opts.interactive === true
-          ? 'Агент запускается при входе этого пользователя: окна агента и сервера на рабочем столе. Из сеанса не выходи — просто закрывай RDP. Журнал: agent.log'
+          ? 'Агент работает без окна при входе этого пользователя, окно DayZ-сервера — на рабочем столе. Из сеанса не выходи — просто закрывай RDP. Журнал: agent.log'
           : 'Агент добавлен в автозапуск и запущен (Планировщик заданий → "LX Agent"). Журнал: agent.log',
       );
       return;
+    }
     case 'uninstall':
       uninstall();
       console.log('Агент убран из автозапуска.');

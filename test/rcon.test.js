@@ -110,3 +110,23 @@ test('RCon: перед подключением перечитывает пор�
     be.sock.close();
   }
 });
+
+test('RCon: после повторного входа нумерация команд с 0, при молчании — переподключение', async () => {
+  const be = await fakeBE('pw');
+  const seqs = [];
+  be.sock.on('message', (msg) => {
+    const p = parsePacket(msg);
+    if (p?.type === 1) seqs.push(p.body[0]);
+  });
+  const rcon = new BERcon({ host: '127.0.0.1', port: be.port, password: 'pw', timeoutMs: 1000 });
+  try {
+    await rcon.command('say -1 a');
+    await rcon.command('say -1 b');
+    rcon.close();
+    await rcon.command('say -1 c');
+    assert.deepEqual(seqs, [0, 1, 0]);
+  } finally {
+    rcon.close();
+    be.sock.close();
+  }
+});
