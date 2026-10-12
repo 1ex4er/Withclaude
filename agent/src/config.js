@@ -86,13 +86,39 @@ export function loadConfig(file) {
   };
   lx.files.roots = absRoots(cfg.lx?.roots ?? { lx: path.join(server.dir, server.profiles, 'LX') });
 
+  if (cfg.schedule?.timeZone !== undefined) {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: cfg.schedule.timeZone });
+    } catch {
+      throw new Error(`config.json: schedule.timeZone — часовой пояс вида "Europe/Moscow", получено: ${cfg.schedule.timeZone}`);
+    }
+  }
+
   return {
     allowInsecureForDev: Boolean(cfg.allowInsecureForDev),
     hubs,
     server,
     files,
     lx,
-    schedule: { restarts: [], warnMinutes: [15, 5, 1], warnMessage: 'Рестарт сервера через {min} мин.', ...cfg.schedule },
+    // Рестарт: предупреждения за warnMinutes, затем за kick.beforeMinutes до времени рестарта —
+    // предупреждение за kick.warnSeconds, #lock, кик всех и остановка с запуском. kick: null — без кика, рестарт ровно в срок.
+    schedule: {
+      restarts: [],
+      warnMinutes: [30, 15, 5, 3],
+      warnMessage: 'Рестарт сервера через {min} мин.',
+      timeZone: 'Europe/Moscow',
+      ...cfg.schedule,
+      kick:
+        cfg.schedule?.kick === null
+          ? null
+          : {
+              beforeMinutes: 2,
+              warnSeconds: 30,
+              warnMessage: 'Через {sec} сек. все игроки будут отключены: рестарт сервера.',
+              reason: 'Рестарт сервера',
+              ...cfg.schedule?.kick,
+            },
+    },
     rcon: { host: '127.0.0.1', port: null, allowRaw: false, ...cfg.rcon },
     logs: {
       extensions: ['.rpt', '.adm', '.log'],

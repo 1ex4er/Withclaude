@@ -7,11 +7,31 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { AgentError } from './errors.js';
+import { parsePlayers } from './rcon.js';
 
 const run = promisify(execFile);
 const isWin = process.platform === 'win32';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const MOD_NAME = /^@[\w.\- ]{1,64}$/;
+// Календарная дата и время в часовом поясе tz (IANA, например Europe/Moscow).
+function zonedDate(ms, tz) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })
+      .formatToParts(ms)
+      .map((p) => [p.type, Number(p.value)]),
+  );
+  return { year: parts.year, month: parts.month, day: parts.day, hour: parts.hour, minute: parts.minute };
+}
+
+// Момент, когда в поясе tz на часах {year, month, day, hour, minute} (day может выходить за месяц — Date.UTC перенесёт).
+function zonedToEpoch({ year, month, day, hour, minute }, tz) {
+  const guess = Date.UTC(year, month - 1, day, hour, minute);
+  const seen = zonedDate(guess, tz);
+  const offset = Date.UTC(seen.year, seen.month - 1, seen.day, seen.hour, seen.minute) - guess;
+  return guess - offset;
+}
+
+// Пробелы и скобки встречаются в названиях модов Workshop ("@STALKER NewHorizon Objects (Legacy)").
+const MOD_NAME = /^@[\w.\-() ]{1,64}$/;
 
 export class ServerProcess extends EventEmitter {
   constructor({ cfg, state, rcon, log }) {
@@ -27,6 +47,7 @@ export class ServerProcess extends EventEmitter {
     this.crashes = [];
     this.nextRestart = null;
     this.warned = new Set();
+    this.kickWarnedAt = null;
   }
 
   get exePath() {
@@ -89,7 +110,11 @@ export class ServerProcess extends EventEmitter {
   // Если сервер уже запущен (например, раньше через .bat) — берём его под управление
   // (или, при manage = false, только под наблюдение: статус и RCon).
   async adopt() {
-    if (await this.isAlive()) return this.pid;
+    if (await this.isAlive()) {
+      // Сервер работает и он наш: после перезапуска агента автоподъём должен остаться включённым.
+      if (this.cfg.manage !== false) this.state.set('desired', 'running');
+      return this.pid;
+    }
     if (!isWin) return null;
     try {
       const { stdout } = await run('tasklist', ['/FI', `IMAGENAME eq ${this.cfg.exe}`, '/FO', 'CSV', '/NH'], { windowsHide: true });
@@ -256,7 +281,7 @@ export class ServerProcess extends EventEmitter {
       this.rcon.connect().catch(() => {});
     }
 
-    await this.#scheduleTick(alive);
+    await this.scheduleStep(alive);
   }
 
   getSchedule() {
@@ -280,6 +305,7 @@ export class ServerProcess extends EventEmitter {
     this.nextRestart = Date.now() + minutes * 60_000;
     this.manualRestart = true;
     this.warned.clear();
+    this.kickWarnedAt = null;
     return { at: this.nextRestart };
   }
 
@@ -287,42 +313,84 @@ export class ServerProcess extends EventEmitter {
     this.manualRestart = false;
     this.nextRestart = null;
     this.warned.clear();
+    this.kickWarnedAt = null;
   }
 
+  // Ближайший рестарт, до которого ещё не дошёл кик (lead): после рестарта в 15:58 «16:00» уже выполнен.
+  // Время в расписании — по schedule.timeZone (по умолчанию МСК), часовой пояс самой Windows не важен.
   #computeNext(now = new Date()) {
+    const lead = this.schedule.kick ? this.schedule.kick.beforeMinutes * 60_000 : 0;
+    const tz = this.schedule.timeZone;
+    const today = zonedDate(now.getTime(), tz);
     let best = null;
     for (const t of this.getSchedule()) {
       const [h, m] = t.split(':').map(Number);
-      const d = new Date(now);
-      d.setHours(h, m, 0, 0);
-      if (d <= now) d.setDate(d.getDate() + 1);
-      if (!best || d < best) best = d;
+      for (const dayShift of [0, 1]) {
+        const at = zonedToEpoch({ ...today, day: today.day + dayShift, hour: h, minute: m }, tz);
+        if (at - lead > now.getTime()) {
+          if (best === null || at < best) best = at;
+          break;
+        }
+      }
     }
-    return best ? best.getTime() : null;
+    return best;
   }
 
-  async #scheduleTick(alive) {
-    if (!this.manualRestart) {
-      const next = this.#computeNext();
-      if (next !== this.nextRestart) {
-        this.nextRestart = next;
-        this.warned.clear();
-      }
+  #say(text) {
+    return this.rcon.command(`say -1 ${text}`).catch(() => {});
+  }
+
+  // Шаг расписания (вызывается раз в 5 с; now — для тестов).
+  // Следующий плановый рестарт считается один раз и держится, пока не выполнится: иначе в момент
+  // рестарта пересчёт отдал бы «завтра» и рестарт бы пропал. setSchedule и сам рестарт его сбрасывают.
+  async scheduleStep(alive, now = Date.now()) {
+    if (!this.manualRestart && this.nextRestart === null) {
+      this.nextRestart = this.#computeNext(new Date(now));
+      this.warned.clear();
+      this.kickWarnedAt = null;
     }
     if (!this.nextRestart || !alive) return;
-    const left = this.nextRestart - Date.now();
-    for (const w of this.schedule.warnMinutes) {
-      if (left <= w * 60_000 && left > 0 && !this.warned.has(w)) {
-        this.warned.add(w);
-        const text = this.schedule.warnMessage.replace('{min}', String(w));
-        this.rcon.command(`say -1 ${text}`).catch(() => {});
-      }
+
+    const kick = this.schedule.kick;
+    const restartAt = kick ? this.nextRestart - kick.beforeMinutes * 60_000 : this.nextRestart;
+    const left = this.nextRestart - now;
+
+    // Наступившие пороги объявляются одним сообщением с настоящим остатком:
+    // «рестарт через 5 мин» не превращается в серию «через 30… 15… 5».
+    const due = this.schedule.warnMinutes.filter((w) => left <= w * 60_000 && !this.warned.has(w));
+    if (due.length && left > 0) {
+      for (const w of due) this.warned.add(w);
+      await this.#say(this.schedule.warnMessage.replace('{min}', String(Math.ceil(left / 60_000))));
     }
-    if (left <= 0) {
-      this.manualRestart = false;
-      this.nextRestart = null;
-      this.log.info('плановый рестарт');
-      await this.restart().catch((e) => this.log.error(`плановый рестарт не удался: ${e.message}`));
+
+    if (kick) {
+      const warnAt = restartAt - kick.warnSeconds * 1000;
+      if (now >= warnAt && this.kickWarnedAt === null) {
+        this.kickWarnedAt = now;
+        await this.#say(kick.warnMessage.replace('{sec}', String(kick.warnSeconds)));
+      }
+      // Кик не раньше чем через warnSeconds после предупреждения (важно для «рестарт через 1 мин»).
+      if (now < restartAt || this.kickWarnedAt === null || now - this.kickWarnedAt < kick.warnSeconds * 1000) return;
+    } else if (now < restartAt) {
+      return;
+    }
+
+    this.manualRestart = false;
+    this.nextRestart = null;
+    this.log.info('плановый рестарт');
+    if (kick) await this.#kickAll(kick.reason);
+    await this.restart().catch((e) => this.log.error(`плановый рестарт не удался: ${e.message}`));
+  }
+
+  // Закрыть вход и отключить всех перед остановкой (сохранение мира делает #shutdown при остановке).
+  async #kickAll(reason) {
+    try {
+      await this.rcon.command('#lock');
+      const players = parsePlayers(await this.rcon.command('players'));
+      for (const p of players) await this.rcon.command(`kick ${p.id} ${reason}`).catch(() => {});
+      this.log.info(`перед рестартом отключено игроков: ${players.length}`);
+    } catch (e) {
+      this.log.warn(`кик перед рестартом не удался: ${e.message}`);
     }
   }
 }
