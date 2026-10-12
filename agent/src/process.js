@@ -118,6 +118,7 @@ export class ServerProcess extends EventEmitter {
       startedAt: running ? this.startedAt : null,
       busy: this.busy,
       desired: this.state.get('desired', 'stopped'),
+      manage: this.cfg.manage !== false,
       rcon: this.rcon.connected,
       ...this.mods(),
       nextRestart: this.nextRestart,

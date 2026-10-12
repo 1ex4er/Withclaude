@@ -46,3 +46,28 @@ test('старт, повторный старт, стоп с принудите�
   assert.ok(!(await s.isAlive()));
   assert.equal((await s.status()).desired, 'stopped');
 });
+
+test('manage: false — старт/стоп/рестарт отклоняются при любом allow, статус работает', async () => {
+  const { createActions } = await import('../agent/src/actions.js');
+  const calls = [];
+  const server = {
+    cfg: { manage: false },
+    status: async () => ({ running: true, manage: false }),
+    start: async () => calls.push('start'),
+    stop: async () => calls.push('stop'),
+    restart: async () => calls.push('restart'),
+    restartIn: () => calls.push('restartIn'),
+    setSchedule: () => calls.push('setSchedule'),
+    getSchedule: () => [],
+    cancelPlannedRestart: () => {},
+  };
+  const actions = createActions({ server, rcon: {}, files: {}, lxFiles: {}, lxModPrefix: '@LX', logs: {}, mods: {}, rconCfg: {}, info: () => ({}) });
+  for (const a of ['server.start', 'server.stop', 'server.restart', 'server.restartIn', 'server.setSchedule']) {
+    assert.throws(() => actions[a]({ minutes: 5, restarts: [] }), (e) => e.code === 'denied', a);
+  }
+  assert.deepEqual(calls, []);
+  assert.equal((await actions['server.status']()).manage, false);
+  server.cfg.manage = true;
+  await actions['server.start']({});
+  assert.deepEqual(calls, ['start']);
+});

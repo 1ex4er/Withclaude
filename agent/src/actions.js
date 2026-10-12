@@ -12,15 +12,21 @@ const MOD_LIST = (v, name) => {
 // Какие действия доступны конкретному сайту, решает allow в config.json агента (см. connection.js).
 export function createActions({ server, rcon, files, lxFiles, lxModPrefix, logs, mods, rconCfg, info }) {
   const rconCmd = (cmd) => rcon.command(cmd);
+  // manage: false — сервер запускает панель хостинга или батник: строкой запуска агента (без их модов)
+  // его поднимать нельзя, поэтому старт/стоп/рестарт отклоняются при любом allow.
+  const managed = (fn) => (p, ...rest) => {
+    if (server.cfg.manage === false) throw new AgentError('denied', 'Сервером управляет панель хостинга (manage: false в config.json агента)');
+    return fn(p, ...rest);
+  };
 
   return {
     'agent.info': () => info(),
 
     // --- Сервер ---
     'server.status': () => server.status(),
-    'server.start': () => server.start(),
-    'server.stop': (p) => server.stop({ graceful: p.force !== true }),
-    'server.restart': (p) =>
+    'server.start': managed(() => server.start()),
+    'server.stop': managed((p) => server.stop({ graceful: p.force !== true })),
+    'server.restart': managed((p) =>
       server.restart({
         beforeStart: p.updateMods
           ? () => {
@@ -28,11 +34,11 @@ export function createActions({ server, rcon, files, lxFiles, lxModPrefix, logs,
               return mods.update(mods.workshopOnly([...client, ...serverMods]));
             }
           : undefined,
-      }),
-    'server.restartIn': (p) => server.restartIn(check.int(p.minutes, 'minutes', { min: 1, max: 180 })),
+      })),
+    'server.restartIn': managed((p) => server.restartIn(check.int(p.minutes, 'minutes', { min: 1, max: 180 }))),
     'server.cancelRestart': () => (server.cancelPlannedRestart(), { cancelled: true }),
     'server.getSchedule': () => ({ restarts: server.getSchedule() }),
-    'server.setSchedule': (p) => ({ restarts: server.setSchedule(p.restarts) }),
+    'server.setSchedule': managed((p) => ({ restarts: server.setSchedule(p.restarts) })),
 
     // --- Файлы и конфиги ---
     'files.roots': () => files.roots(),

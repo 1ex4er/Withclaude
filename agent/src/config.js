@@ -111,20 +111,32 @@ export function isAllowed(allow, action) {
 }
 
 // Пароль и порт RCon читаются прямо из конфига BattlEye — вписывать их ещё куда-то не нужно.
+// Пароль может лежать в одном файле, а порт — в другом (панели хостингов пишут RConPort только в
+// BEServer_x64_active_*.cfg или в profiles\BattlEye): порт берётся из файла с паролем, иначе из любого,
+// в первую очередь из active — его BattlEye создаёт из того, с чем реально запущен.
 export function readBattlEyeConfig(server) {
   const dirs = [path.resolve(server.dir, server.bePath), path.join(server.dir, server.profiles, 'BattlEye')];
+  const files = [];
   for (const dir of dirs) {
     if (!fs.existsSync(dir)) continue;
-    const candidates = fs
-      .readdirSync(dir)
-      .filter((f) => /^beserver_x64(_active_\w+)?\.cfg$/i.test(f))
-      .map((f) => ({ f, active: /_active_/i.test(f), mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
-      .sort((a, b) => Number(a.active) - Number(b.active) || b.mtime - a.mtime);
-    for (const { f } of candidates) {
-      const text = fs.readFileSync(path.join(dir, f), 'utf8');
-      const password = /^\s*RConPassword\s+(\S+)/im.exec(text)?.[1];
-      if (password) return { password, port: Number(/^\s*RConPort\s+(\d+)/im.exec(text)?.[1]) || null };
-    }
+    files.push(
+      ...fs
+        .readdirSync(dir)
+        .filter((f) => /^beserver_x64(_active_\w+)?\.cfg$/i.test(f))
+        .map((f) => {
+          const text = fs.readFileSync(path.join(dir, f), 'utf8');
+          return {
+            active: /_active_/i.test(f),
+            mtime: fs.statSync(path.join(dir, f)).mtimeMs,
+            password: /^\s*RConPassword\s+(\S+)/im.exec(text)?.[1] ?? null,
+            port: Number(/^\s*RConPort\s+(\d+)/im.exec(text)?.[1]) || null,
+          };
+        })
+        .sort((a, b) => Number(a.active) - Number(b.active) || b.mtime - a.mtime),
+    );
   }
-  return { password: null, port: null };
+  const withPassword = files.find((f) => f.password);
+  if (!withPassword) return { password: null, port: null };
+  const port = withPassword.port ?? [...files].sort((a, b) => Number(b.active) - Number(a.active)).find((f) => f.port)?.port ?? null;
+  return { password: withPassword.password, port };
 }
