@@ -1,6 +1,8 @@
 // Работа агента: подключение к сайтам из config.json и выполнение их команд в пределах allow.
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { loadPublicKey } from '../../shared/protocol.js';
@@ -43,7 +45,33 @@ const auditParams = (params) => {
   return typeof content === 'string' ? { ...rest, content: `<${content.length} символов>` } : rest;
 };
 
+// Один агент на папку: второй (задача автозапуска + ручной запуск) поднял бы второй DayZ на тех же файлах.
+// Замок — локальный порт, вычисленный из пути папки: ОС освобождает его сама, даже если агент упал.
+export function lockPort(dir) {
+  const hash = crypto.createHash('sha256').update(path.resolve(dir).toLowerCase()).digest();
+  return 47000 + (hash.readUInt16BE(0) % 1000);
+}
+
+export function acquireInstanceLock(dir) {
+  const port = lockPort(dir);
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', (e) =>
+      reject(
+        e.code === 'EADDRINUSE'
+          ? new Error(`агент для ${dir} уже запущен (второй экземпляр не нужен; порт-замок ${port})`)
+          : e,
+      ),
+    );
+    server.listen(port, '127.0.0.1', () => {
+      server.unref();
+      resolve(server);
+    });
+  });
+}
+
 export async function runAgent(configPath) {
+  await acquireInstanceLock(path.dirname(configPath));
   const envPath = path.join(path.dirname(configPath), '.env');
   if (fs.existsSync(envPath)) process.loadEnvFile(envPath);
 

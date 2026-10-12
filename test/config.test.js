@@ -85,3 +85,30 @@ test('задача автозапуска: SYSTEM при загрузке или
   assert.match(desk, /<LogonTrigger><Enabled>true<\/Enabled><UserId>WIN-1\/Администратор<\/UserId>/);
   assert.doesNotMatch(desk, /BootTrigger/);
 });
+
+test('второй агент на той же папке не запускается, на другой — запускается', async () => {
+  const { acquireInstanceLock } = await import('../agent/src/agent.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-lock-'));
+  const first = await acquireInstanceLock(dir);
+  await assert.rejects(acquireInstanceLock(dir), /уже запущен/);
+  const other = await acquireInstanceLock(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-lock-')));
+  first.close();
+  other.close();
+  const again = await acquireInstanceLock(dir);
+  again.close();
+});
+
+test('занятый игровой UDP-порт распознаётся', async () => {
+  const dgram = await import('node:dgram');
+  const { udpPortBusy } = await import('../agent/src/process.js');
+  const sock = dgram.createSocket('udp4');
+  await new Promise((r) => sock.bind({ port: 0, address: '0.0.0.0', exclusive: true }, r));
+  const port = sock.address().port;
+  try {
+    assert.equal(await udpPortBusy(port), true);
+  } finally {
+    sock.close();
+  }
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(await udpPortBusy(port), false);
+});

@@ -2,6 +2,7 @@
 // рестарты по расписанию с предупреждениями игроков.
 
 import { execFile, spawn } from 'node:child_process';
+import dgram from 'node:dgram';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -42,6 +43,18 @@ export function pickServerProcess(list, exePath, zombies = new Set()) {
     .map((p) => ({ pid: p.ProcessId, startedAt: p.Created ? Date.parse(p.Created) || null : null }))
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
   return candidates[0] ?? null;
+}
+
+// Занят ли UDP-порт (игровой порт DayZ): пробуем занять его сами и сразу отпускаем.
+export function udpPortBusy(port) {
+  return new Promise((resolve) => {
+    const sock = dgram.createSocket('udp4');
+    sock.once('error', (e) => {
+      sock.close();
+      resolve(e.code === 'EADDRINUSE' || e.code === 'EACCES');
+    });
+    sock.bind({ port, address: '0.0.0.0', exclusive: true }, () => sock.close(() => resolve(false)));
+  });
 }
 
 // Пробелы и скобки встречаются в названиях модов Workshop ("@STALKER NewHorizon Objects (Legacy)").
@@ -225,6 +238,10 @@ export class ServerProcess extends EventEmitter {
       this.#setPid(other.pid, other.startedAt ?? Date.now());
       this.log.warn(`сервер уже запущен не агентом (pid ${other.pid}) — взят под управление`);
       return { alreadyRunning: true, pid: other.pid };
+    }
+    // Последний рубеж: игровой порт занят — значит, сервер уже работает (другой агент, панель, вручную).
+    if (await udpPortBusy(this.cfg.port)) {
+      throw new AgentError('already_running', `Порт ${this.cfg.port} уже занят — сервер уже запущен, второй не запускаю`);
     }
     if (!fs.existsSync(this.exePath)) throw new AgentError('not_found', `Не найден ${this.exePath}`);
     const child = spawn(this.exePath, this.buildArgs(), {
