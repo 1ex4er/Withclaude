@@ -18,6 +18,7 @@ import { proxiedMakeRequest } from './proxy-rest.js';
 import { createHttpServer } from './http.js';
 import { Links } from './links.js';
 import { applySettings } from './settings.js';
+import { createSiteApi } from './site-api.js';
 import { MODULES } from './modules/index.js';
 import { Whitelist } from './whitelist.js';
 
@@ -97,6 +98,7 @@ const server = createHttpServer({
   log,
   onLinked: (discordId, steamId, previous) => ctx.emitLinked?.(discordId, steamId, previous) ?? Promise.resolve(),
   interactions: httpInteractions,
+  siteApi: createSiteApi(ctx),
 });
 server.listen(cfg.http.port, cfg.http.host, () => log.info(`HTTP: http://${cfg.http.host}:${cfg.http.port} (за nginx)`));
 

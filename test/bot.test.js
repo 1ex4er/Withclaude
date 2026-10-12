@@ -174,6 +174,65 @@ test('HTTP: старт привязки, неверный токен, API тол
   }
 });
 
+test('API сайта: привязка с сайта, карточка игрока, вайтлист, агент не в сети', async () => {
+  const { createSiteApi } = await import('../bot/src/site-api.js');
+  const db = openDb(':memory:');
+  const links = new Links(db);
+  const linked = [];
+  const changes = [];
+  const ctx = {
+    db,
+    links,
+    log: { warn() {} },
+    agent: { online: false },
+    emitLinked: async (...args) => linked.push(args),
+    whitelist: {
+      change: async (...args) => (changes.push(args), false),
+      list: async () => Promise.reject(Object.assign(new Error('offline'), { code: 'agent_offline' })),
+    },
+  };
+  const cfg = { publicUrl: 'https://blackout.test', secrets: { apiToken: 'secret-token' } };
+  const srv = createHttpServer({ cfg, links, agent: { attach() {} }, log: ctx.log, siteApi: createSiteApi(ctx) });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const api = (path, body) =>
+    fetch(`${base}${path}`, {
+      method: body ? 'POST' : 'GET',
+      headers: { authorization: 'Bearer secret-token' },
+      body: body && JSON.stringify(body),
+    });
+  try {
+    assert.equal((await fetch(`${base}/api/health`)).status, 401);
+    assert.deepEqual(await (await api('/api/health')).json(), { bot: false, agent: false });
+
+    // Ручная привязка заменяется подтверждённой сайтом; повтор ничего не меняет.
+    links.setManual('111111111111111111', '76561198000000009');
+    const r1 = await (await api('/api/link', { discordId: '111111111111111111', steamId: STEAM })).json();
+    assert.deepEqual(r1, { ok: true, changed: true, previous: '76561198000000009' });
+    assert.equal(links.get('111111111111111111').method, 'site');
+    assert.equal((await (await api('/api/link', { discordId: '111111111111111111', steamId: STEAM })).json()).changed, false);
+    assert.equal(linked.length, 1);
+    // Подтверждённую привязку вручную не перебить, чужой Steam сайтом не перехватить.
+    assert.equal(links.setManual('111111111111111111', '76561198000000009').ok, false);
+    assert.equal((await api('/api/link', { discordId: '222222222222222222', steamId: STEAM })).status, 409);
+    assert.equal((await api('/api/link', { discordId: 'x', steamId: STEAM })).status, 400);
+
+    db.prepare('INSERT INTO warns (discord_id, mod_id, reason, created_at) VALUES (?, ?, ?, ?)').run('111111111111111111', '9', 'флуд', 1);
+    const p = await (await api(`/api/profile?steamId=${STEAM}`)).json();
+    assert.equal(p.discordId, '111111111111111111');
+    assert.equal(p.warns[0].reason, 'флуд');
+    assert.deepEqual(p.tickets, { total: 0, open: 0 });
+    assert.equal((await (await api('/api/profile?steamId=76561198000000123')).json()).link, null);
+
+    assert.deepEqual(await (await api('/api/whitelist', { op: 'add', steamId: STEAM, note: 'site' })).json(), { ok: true, applied: false });
+    assert.deepEqual(changes, [['add', STEAM, 'site']]);
+    assert.equal((await api('/api/whitelist', { op: 'drop', steamId: STEAM })).status, 400);
+    assert.equal((await api('/api/whitelist')).status, 503);
+    assert.equal((await api('/api/nope')).status, 404);
+  } finally {
+    srv.close();
+  }
+});
 
 test('настройки из /setup накладываются на конфиг и переживают перезапуск', async () => {
   const { applySettings, saveSetting } = await import('../bot/src/settings.js');

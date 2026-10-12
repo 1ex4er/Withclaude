@@ -54,12 +54,26 @@ export class Links {
       return { ok: false, message: 'Этот Steam уже привязан к другому участнику. Если это твой аккаунт — создай тикет.' };
     }
     const current = this.q.byDiscord.get(discordId);
-    // Подтверждённый через Steam аккаунт вручную не перезаписываем.
-    if (current?.method === 'openid' && current.steam_id !== steamId) {
+    // Подтверждённый аккаунт (вход через Steam здесь или на сайте) вручную не перезаписываем.
+    const verified = current && current.method !== 'manual';
+    if (verified && current.steam_id !== steamId) {
       return { ok: false, message: 'У тебя уже привязан Steam через вход Steam. Сменить его можно через /steam.' };
     }
-    this.q.upsert.run(discordId, steamId, now, current?.method === 'openid' ? 'openid' : 'manual');
+    this.q.upsert.run(discordId, steamId, now, verified ? current.method : 'manual');
     return { ok: true, discordId, steamId, previous: current?.steam_id ?? null };
+  }
+
+  // Сайт подтвердил оба аккаунта (вход через Steam + Discord OAuth) — сильнее ручной и прежней привязки.
+  // Чужой Steam (уже привязан к другому Discord) не перехватываем.
+  setVerified(discordId, steamId, now = Date.now()) {
+    const other = this.q.bySteam.get(steamId);
+    if (other && other.discord_id !== discordId) {
+      return { ok: false, message: 'Этот Steam уже привязан к другому Discord' };
+    }
+    const current = this.q.byDiscord.get(discordId);
+    if (current?.steam_id === steamId && current.method !== 'manual') return { ok: true, changed: false, previous: steamId };
+    this.q.upsert.run(discordId, steamId, now, 'site');
+    return { ok: true, changed: true, previous: current?.steam_id ?? null };
   }
 
   get(discordId) {

@@ -37,7 +37,7 @@ async function readJson(req, limit = 1024 * 1024) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
 }
 
-export function createHttpServer({ cfg, links, agent, log, onLinked, interactions = null }) {
+export function createHttpServer({ cfg, links, agent, log, onLinked, interactions = null, siteApi = null }) {
   const callbackBase = `${cfg.publicUrl}/link/steam/callback`;
 
   const server = http.createServer(async (req, res) => {
@@ -97,6 +97,8 @@ export function createHttpServer({ cfg, links, agent, log, onLinked, interaction
           const steam = url.searchParams.get('steamId');
           return send(res, 200, JSON.stringify(links.find({ discordId: id, steamId: steam })), 'application/json');
         }
+        const r = await siteApi?.handle(req.method, url, () => readJson(req));
+        if (r) return send(res, r.status, JSON.stringify(r.body), 'application/json');
         return send(res, 404, '{"error":"not found"}', 'application/json');
       }
 
