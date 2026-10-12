@@ -131,3 +131,19 @@ journalctl -u blackout-bot -n 40 --no-pager | grep -E "опоздани|подт
 `/unwarn`, `/mute`, `/kick`, `/clear`, `/check`, `/whitelist`, `/punish`, `/unpunish`, `/punishments`, анкеты,
 `/rcon say|kick|bans`; админы — `/ban`, `/unban`, `/server …`, `/rcon ban|ban-steam|unban`, `/setup`, `/panel`,
 `/raidmode`. Полная таблица — в `bot/README.md`.
+
+---
+
+## 8. Сессия 12.10.2026 (Claude Code на домашнем ПК)
+
+- **Бот перенесён с LX (.185) на сервер сайта Blackout (.178)**: `/opt/blackout`, пользователь `blackoutbot`,
+  прокси tpws — служба `blackout-discord-proxy` (скопирована с LX). Перенесены `bot.db`, `.env`, `config.json`,
+  бэкапы, транскрипты. На LX бот остановлен и выключен (`systemctl disable`), файлы оставлены.
+- nginx blackoutstalkerrp.ru: `snippets/blackout-bot.conf` (`/discord/interactions`, `/link/steam/`, `/agent-ws`).
+  `publicUrl` бота по умолчанию `https://blackoutstalkerrp.ru` — теперь совпадает с реальным адресом.
+  Interactions Endpoint URL нужно указать `https://blackoutstalkerrp.ru/discord/interactions`.
+- **API бота для сайта** (`bot/src/site-api.js`): `/api/health`, `/api/profile`, `/api/link`, `/api/whitelist`.
+  Привязка с сайта (`method='site'`) считается подтверждённой. Токен `API_TOKEN` создан на сервере.
+- **Сайт Blackout** (`E:\modding\blackout-web`, выкачен релиз 20261012-121741): разделы админки «Сервер»,
+  «Конфиги», карточка игрока; привязка Discord на сайте передаётся боту.
+- Сайт LX = `lx-helper` (`/opt/lx-helper` на .185, без git). Снимок исходников — `E:\modding\lx-helper`.
