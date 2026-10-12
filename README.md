@@ -1,3 +1,6 @@
+> 📒 **Для новых сессий Claude Code и для людей:** полный журнал того, что сделано, как развёрнуто и что
+> осталось — [`docs/SESSION_LOG.md`](docs/SESSION_LOG.md). Кратко — [`CLAUDE.md`](CLAUDE.md).
+
 # Blackout: управление сервером, LX Agent и Discord-бот
 
 - **`agent/`** — LX Agent (`lx-agent.exe`) для Windows VDS с DayZ-сервером, описан ниже.
