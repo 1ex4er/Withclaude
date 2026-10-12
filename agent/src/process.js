@@ -86,7 +86,8 @@ export class ServerProcess extends EventEmitter {
     }
   }
 
-  // Если сервер уже запущен (например, раньше через .bat) — берём его под управление.
+  // Если сервер уже запущен (например, раньше через .bat) — берём его под управление
+  // (или, при manage = false, только под наблюдение: статус и RCon).
   async adopt() {
     if (await this.isAlive()) return this.pid;
     if (!isWin) return null;
@@ -95,7 +96,7 @@ export class ServerProcess extends EventEmitter {
       const m = /^"[^"]+","(\d+)"/m.exec(stdout);
       if (m) {
         this.#setPid(Number(m[1]), this.startedAt ?? Date.now());
-        this.state.set('desired', 'running');
+        if (this.cfg.manage !== false) this.state.set('desired', 'running');
         return this.pid;
       }
     } catch {}
@@ -224,7 +225,13 @@ export class ServerProcess extends EventEmitter {
   async #tick() {
     if (this.busy) return;
     const desired = this.state.get('desired', 'stopped');
-    const alive = await this.isAlive();
+    const alive = (await this.isAlive()) || (!this.cfg.manage && (await this.adopt()) !== null);
+
+    // Режим наблюдения: сервер запускает панель хостинга/батник, агент только подключает RCon.
+    if (!this.cfg.manage) {
+      if (alive && !this.rcon.connected) this.rcon.connect().catch(() => {});
+      return;
+    }
 
     if (desired === 'running' && !alive) {
       this.log.warn('сервер упал');

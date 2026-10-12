@@ -57,6 +57,10 @@ export function loadConfig(file) {
     serverMods: [],
     autoRestartOnCrash: true,
     stopTimeoutSec: 60,
+    // Управлять процессом (перехват запущенного сервера, автоподъём, рестарты по расписанию) — только если
+    // хоть одному сайту разрешены старт/стоп. Агент покупателя LX (allow: lx.*) сервер только наблюдает:
+    // иначе он поднял бы упавший сервер своей строкой запуска, без модов из батника/панели.
+    manage: hubs.some((h) => h.allow.some((a) => a === '*' || a === 'server.*' || /^server\.(start|stop|restart|restartIn|setSchedule)$/.test(a))),
     ...cfg.server,
   };
   server.dir = rel(server.dir);

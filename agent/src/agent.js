@@ -129,7 +129,7 @@ export async function runAgent(configPath) {
   rcon.on('error', (e) => log.warn(`rcon: ${e.message}`));
 
   const adopted = await server.adopt();
-  if (adopted) log.info(`найден запущенный сервер, pid ${adopted} — взят под управление`);
+  if (adopted) log.info(`найден запущенный сервер, pid ${adopted} — ${cfg.server.manage ? 'взят под управление' : 'только наблюдение (сайтам не разрешены старт/стоп)'}`);
   server.startWatchdog();
   for (const h of hubs.values()) h.start();
   log.info(`агент v${VERSION} запущен (ключ ${fp}), сайты: ${cfg.hubs.map((h) => `${h.name} [${h.allow.join(', ')}]`).join('; ')}`);

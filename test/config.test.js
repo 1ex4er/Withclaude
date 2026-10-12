@@ -33,6 +33,21 @@ test('сайт по лицензии по умолчанию получает т
   assert.ok(path.isAbsolute(cfg.hubs[1].sitePublicKey));
 });
 
+test('агент только с сайтом LX не управляет процессом сервера, со своим сайтом — управляет', () => {
+  const lxOnly = loadConfig(writeConfig({ server: { dir: '.' }, hubs: [{ name: 'lx', url: 'wss://lxmodschngz.ru/agent-ws', license: 'LX-1234-5678' }] }));
+  assert.equal(lxOnly.server.manage, false);
+  const both = loadConfig(writeConfig({
+    server: { dir: '.' },
+    hubs: [
+      { name: 'lx', url: 'wss://lxmodschngz.ru/agent-ws', license: 'LX-1234-5678' },
+      { name: 'site', url: 'wss://blackoutstalkerrp.ru/agent-ws', agentId: 'blackout-main', sitePublicKey: 'k.pem' },
+    ],
+  }));
+  assert.equal(both.server.manage, true);
+  const forced = loadConfig(writeConfig({ server: { dir: '.', manage: false }, hubs: [{ name: 'site', url: 'wss://a.ru/agent-ws', agentId: 'abc', sitePublicKey: 'k.pem' }] }));
+  assert.equal(forced.server.manage, false);
+});
+
 test('незашифрованный адрес сайта запрещён', () => {
   assert.throws(() => loadConfig(writeConfig({ server: { dir: '.' }, hubs: [{ name: 'xx', url: 'ws://a/b' }] })), /wss/);
   assert.throws(() => loadConfig(writeConfig({ server: { dir: '.' }, hubs: [{ name: 'xx', url: 'wss://a', allow: ['rm -rf'] }] })), /allow/);
