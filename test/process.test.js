@@ -144,3 +144,19 @@ test('расписание по МСК независимо от часовог�
   await late.scheduleStep(true, Date.UTC(2026, 9, 31, 20, 0)); // 23:00 МСК 31 октября
   assert.equal(late.nextRestart, Date.UTC(2026, 9, 31, 21, 0)); // 00:00 МСК 1 ноября
 });
+
+test('выбор процесса сервера: самый свежий из своей папки, без зависших и процессов без потоков', async () => {
+  const { pickServerProcess } = await import('../agent/src/process.js');
+  const exe = path.join(os.tmpdir(), 'gs', 'Server', 'DayZServer_x64.exe');
+  const other = path.join(os.tmpdir(), 'other', 'DayZServer_x64.exe');
+  const list = [
+    { ProcessId: 95664, ExecutablePath: exe, ThreadCount: 0, Created: '2026-10-01T01:03:45Z' },
+    { ProcessId: 572868, ExecutablePath: exe, ThreadCount: 0, Created: '2026-10-06T00:22:59Z' },
+    { ProcessId: 700, ExecutablePath: other, ThreadCount: 90, Created: '2026-10-12T12:30:00Z' },
+    { ProcessId: 800, ExecutablePath: exe, ThreadCount: 85, Created: '2026-10-12T12:05:00Z' },
+    { ProcessId: 801, ExecutablePath: exe, ThreadCount: 80, Created: '2026-10-12T09:00:00Z' },
+  ];
+  assert.equal(pickServerProcess(list, exe).pid, 800);
+  assert.equal(pickServerProcess(list, exe, new Set([800])).pid, 801);
+  assert.equal(pickServerProcess(list.slice(0, 2), exe), null);
+});

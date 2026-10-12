@@ -30,6 +30,20 @@ function zonedToEpoch({ year, month, day, hour, minute }, tz) {
   return guess - offset;
 }
 
+// Из списка процессов (Win32_Process: ProcessId, ExecutablePath, ThreadCount, Created) — самый свежий из папки сервера, без зависших.
+// Если путь не виден (нет прав на чужой процесс), процесс всё равно годится: имя exe уже совпало.
+export function pickServerProcess(list, exePath, zombies = new Set()) {
+  const want = path.resolve(exePath).toLowerCase();
+  const candidates = list
+    .filter((p) => p && Number.isInteger(p.ProcessId) && !zombies.has(p.ProcessId))
+    // 0 потоков — процесс уже завершился, но Windows держит его в списке (открытые дескрипторы): это не сервер.
+    .filter((p) => p.ThreadCount === undefined || p.ThreadCount === null || p.ThreadCount > 0)
+    .filter((p) => !p.ExecutablePath || path.resolve(p.ExecutablePath).toLowerCase() === want)
+    .map((p) => ({ pid: p.ProcessId, startedAt: p.Created ? Date.parse(p.Created) || null : null }))
+    .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+  return candidates[0] ?? null;
+}
+
 // Пробелы и скобки встречаются в названиях модов Workshop ("@STALKER NewHorizon Objects (Legacy)").
 const MOD_NAME = /^@[\w.\-() ]{1,64}$/;
 
@@ -48,6 +62,8 @@ export class ServerProcess extends EventEmitter {
     this.nextRestart = null;
     this.warned = new Set();
     this.kickWarnedAt = null;
+    this.zombies = new Set(state.get('zombies', []));
+    this.checkedThreads = new Map();
   }
 
   get exePath() {
@@ -91,10 +107,20 @@ export class ServerProcess extends EventEmitter {
 
   async isAlive(pid = this.pid) {
     if (!pid) return false;
+    if (this.zombies.has(pid)) return false;
     if (isWin) {
       try {
         const { stdout } = await run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { windowsHide: true });
-        return stdout.toLowerCase().includes(this.cfg.exe.toLowerCase());
+        if (!stdout.toLowerCase().includes(this.cfg.exe.toLowerCase())) return false;
+        // Раз в минуту — проверка, что у процесса есть потоки (иначе это зависший «мертвец»).
+        if (Date.now() - (this.checkedThreads.get(pid) ?? 0) > 60_000) {
+          if (!(await this.#hasThreads(pid))) {
+            this.#markZombie(pid);
+            return false;
+          }
+          this.checkedThreads.set(pid, Date.now());
+        }
+        return true;
       } catch {
         return false;
       }
@@ -107,25 +133,60 @@ export class ServerProcess extends EventEmitter {
     }
   }
 
+  async #hasThreads(pid) {
+    try {
+      const { stdout } = await run(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").ThreadCount`],
+        { windowsHide: true, timeout: 20_000 },
+      );
+      const n = Number(stdout.trim());
+      return stdout.trim() === '' ? false : !(n === 0);
+    } catch {
+      return true; // не смогли проверить — не объявляем мёртвым
+    }
+  }
+
+  #markZombie(pid) {
+    if (this.zombies.has(pid)) return;
+    this.zombies.add(pid);
+    this.state.set('zombies', [...this.zombies].slice(-50));
+    this.log.warn(`процесс ${pid} завис или уже завершён (не считается сервером)`);
+  }
+
   // Если сервер уже запущен (например, раньше через .bat) — берём его под управление
   // (или, при manage = false, только под наблюдение: статус и RCon).
+  //
+  // На Windows бывают «мёртвые» DayZServer_x64.exe — процессы прошлых запусков, которые не завершаются даже
+  // через taskkill /F. Поэтому берётся самый свежий процесс из папки этого сервера, а зависшие (не убились
+  // при остановке) запоминаются в state.zombies и больше не считаются сервером.
   async adopt() {
-    if (await this.isAlive()) {
+    const found = await this.findServerProcess();
+    if (found) {
+      if (found.pid !== this.pid) this.#setPid(found.pid, found.startedAt ?? Date.now());
       // Сервер работает и он наш: после перезапуска агента автоподъём должен остаться включённым.
       if (this.cfg.manage !== false) this.state.set('desired', 'running');
       return this.pid;
     }
-    if (!isWin) return null;
-    try {
-      const { stdout } = await run('tasklist', ['/FI', `IMAGENAME eq ${this.cfg.exe}`, '/FO', 'CSV', '/NH'], { windowsHide: true });
-      const m = /^"[^"]+","(\d+)"/m.exec(stdout);
-      if (m) {
-        this.#setPid(Number(m[1]), this.startedAt ?? Date.now());
-        if (this.cfg.manage !== false) this.state.set('desired', 'running');
-        return this.pid;
-      }
-    } catch {}
+    if (!isWin && (await this.isAlive())) return this.pid;
     return null;
+  }
+
+  // Самый свежий живой процесс сервера: только exe из папки сервера (не другой DayZ на этой машине), без зависших.
+  async findServerProcess() {
+    if (!isWin) return null;
+    const exe = this.cfg.exe.replace(/'/g, "''");
+    const ps =
+      `Get-CimInstance Win32_Process -Filter "Name='${exe}'" | ` +
+      "Select-Object ProcessId,ExecutablePath,ThreadCount,@{n='Created';e={$_.CreationDate.ToUniversalTime().ToString('o')}} | ConvertTo-Json -Compress";
+    try {
+      const { stdout } = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 20_000 });
+      const list = stdout.trim() ? [].concat(JSON.parse(stdout)) : [];
+      return pickServerProcess(list, this.exePath, this.zombies);
+    } catch (e) {
+      this.log.warn(`поиск процесса сервера: ${e.message}`);
+      return null;
+    }
   }
 
   #setPid(pid, startedAt) {
@@ -158,6 +219,13 @@ export class ServerProcess extends EventEmitter {
   async #startInner() {
     this.state.set('desired', 'running');
     if (await this.isAlive()) return { alreadyRunning: true, pid: this.pid };
+    // Сервер мог запустить кто-то другой (панель хостинга, батник): второй на тех же файлах поднимать нельзя.
+    const other = await this.findServerProcess();
+    if (other) {
+      this.#setPid(other.pid, other.startedAt ?? Date.now());
+      this.log.warn(`сервер уже запущен не агентом (pid ${other.pid}) — взят под управление`);
+      return { alreadyRunning: true, pid: other.pid };
+    }
     if (!fs.existsSync(this.exePath)) throw new AgentError('not_found', `Не найден ${this.exePath}`);
     const child = spawn(this.exePath, this.buildArgs(), {
       cwd: this.cfg.dir,
@@ -194,6 +262,8 @@ export class ServerProcess extends EventEmitter {
     }
     if (await this.isAlive()) await this.#kill();
     this.rcon.close();
+    // Не умер даже от taskkill /F — зависший процесс: больше не считаем его сервером.
+    if (await this.isAlive()) this.#markZombie(this.pid);
     this.log.info('сервер остановлен');
     this.emit('change', 'stopped');
     return { stopped: true };
@@ -251,7 +321,12 @@ export class ServerProcess extends EventEmitter {
   async #tick() {
     if (this.busy) return;
     const desired = this.state.get('desired', 'stopped');
-    const alive = (await this.isAlive()) || (!this.cfg.manage && (await this.adopt()) !== null);
+    let alive = await this.isAlive();
+    // Сервер запустили не мы (панель, батник) — подхватываем, но ищем не чаще раза в 30 с: это вызов PowerShell.
+    if (!alive && !this.cfg.manage && Date.now() - (this.lastAdoptAt ?? 0) > 30_000) {
+      this.lastAdoptAt = Date.now();
+      alive = (await this.adopt()) !== null;
+    }
 
     // Режим наблюдения: сервер запускает панель хостинга/батник, агент только подключает RCon.
     if (!this.cfg.manage) {
