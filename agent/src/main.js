@@ -7,6 +7,7 @@
 //   lx-agent.exe install --interactive   при входе текущего пользователя: окна агента и сервера видны (нужен вход по RDP)
 //   lx-agent.exe uninstall
 //   lx-agent.exe run           запуск в этом окне (по умолчанию)
+//   lx-agent.exe update        скачать новую версию с lxmodschngz.ru и перезапустить агента (сервер не трогается)
 //   lx-agent.exe version
 
 import fs from 'node:fs';
@@ -18,6 +19,36 @@ import { IS_EXE, VERSION, appDir } from './paths.js';
 import { install, uninstall } from './service.js';
 
 const LX_HUB_URL = 'wss://lxmodschngz.ru/agent-ws';
+const UPDATE_URL = 'https://lxmodschngz.ru/lx-agent.exe';
+
+// lx-agent.exe update: скачать новую версию, подменить файл (работающий exe Windows разрешает переименовать),
+// остановить старого агента и запустить задачу «LX Agent» заново. DayZ-сервер при этом продолжает работать.
+async function selfUpdate(url) {
+  if (!IS_EXE || process.platform !== 'win32') throw new Error('update работает только у собранного lx-agent.exe на Windows');
+  const exe = process.execPath;
+  const dir = path.dirname(exe);
+  console.log(`Скачиваю ${url} …`);
+  const res = await fetch(url, { signal: AbortSignal.timeout(10 * 60_000) });
+  if (!res.ok) throw new Error(`не удалось скачать: HTTP ${res.status}`);
+  const data = Buffer.from(await res.arrayBuffer());
+  if (data.length < 5 * 1024 * 1024 || data[0] !== 0x4d || data[1] !== 0x5a) throw new Error('скачанный файл не похож на lx-agent.exe');
+  const fresh = path.join(dir, 'lx-agent.new.exe');
+  const old = path.join(dir, 'lx-agent.old.exe');
+  fs.writeFileSync(fresh, data);
+  fs.rmSync(old, { force: true });
+  fs.renameSync(exe, old);
+  fs.renameSync(fresh, exe);
+  const { execFileSync } = await import('node:child_process');
+  try {
+    execFileSync('taskkill', ['/F', '/IM', 'lx-agent.exe', '/FI', `PID ne ${process.pid}`], { stdio: 'ignore', windowsHide: true });
+  } catch {}
+  try {
+    execFileSync('schtasks.exe', ['/Run', '/TN', 'LX Agent'], { stdio: 'ignore', windowsHide: true });
+    console.log(`Готово: новая версия (${(data.length / 1048576).toFixed(1)} МБ) запущена. Журнал: ${path.join(dir, 'agent.log')}`);
+  } catch {
+    console.log('Файл обновлён. Задачи «LX Agent» нет — запусти агента сам: lx-agent.exe run');
+  }
+}
 
 function parseArgs(argv) {
   const [command = 'run', ...rest] = argv;
@@ -121,8 +152,11 @@ async function main() {
     case '--version':
       console.log(VERSION);
       return;
+    case 'update':
+      await selfUpdate(typeof opts.url === 'string' ? opts.url : UPDATE_URL);
+      return;
     default:
-      throw new Error(`Неизвестная команда: ${command}. Доступно: init, run, pubkey, install, uninstall, version`);
+      throw new Error(`Неизвестная команда: ${command}. Доступно: init, run, pubkey, install, uninstall, update, version`);
   }
 }
 

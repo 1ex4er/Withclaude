@@ -75,6 +75,7 @@ export class ServerProcess extends EventEmitter {
     this.nextRestart = null;
     this.warned = new Set();
     this.kickWarnedAt = null;
+    this.kickedAt = null;
     this.zombies = new Set(state.get('zombies', []));
     this.checkedThreads = new Map();
   }
@@ -411,6 +412,7 @@ export class ServerProcess extends EventEmitter {
     this.manualRestart = true;
     this.warned.clear();
     this.kickWarnedAt = null;
+    this.kickedAt = null;
     return { at: this.nextRestart };
   }
 
@@ -419,12 +421,12 @@ export class ServerProcess extends EventEmitter {
     this.nextRestart = null;
     this.warned.clear();
     this.kickWarnedAt = null;
+    this.kickedAt = null;
   }
 
-  // Ближайший рестарт, до которого ещё не дошёл кик (lead): после рестарта в 15:58 «16:00» уже выполнен.
-  // Время в расписании — по schedule.timeZone (по умолчанию МСК), часовой пояс самой Windows не важен.
+  // Ближайший рестарт после now. Время в расписании — по schedule.timeZone (по умолчанию МСК),
+  // часовой пояс самой Windows не важен.
   #computeNext(now = new Date()) {
-    const lead = this.schedule.kick ? this.schedule.kick.beforeMinutes * 60_000 : 0;
     const tz = this.schedule.timeZone;
     const today = zonedDate(now.getTime(), tz);
     let best = null;
@@ -432,7 +434,7 @@ export class ServerProcess extends EventEmitter {
       const [h, m] = t.split(':').map(Number);
       for (const dayShift of [0, 1]) {
         const at = zonedToEpoch({ ...today, day: today.day + dayShift, hour: h, minute: m }, tz);
-        if (at - lead > now.getTime()) {
+        if (at > now.getTime()) {
           if (best === null || at < best) best = at;
           break;
         }
@@ -453,11 +455,12 @@ export class ServerProcess extends EventEmitter {
       this.nextRestart = this.#computeNext(new Date(now));
       this.warned.clear();
       this.kickWarnedAt = null;
+    this.kickedAt = null;
     }
     if (!this.nextRestart || !alive) return;
 
     const kick = this.schedule.kick;
-    const restartAt = kick ? this.nextRestart - kick.beforeMinutes * 60_000 : this.nextRestart;
+    const kickAt = kick ? this.nextRestart - kick.beforeMinutes * 60_000 : null;
     const left = this.nextRestart - now;
 
     // Наступившие пороги объявляются одним сообщением с настоящим остатком:
@@ -468,22 +471,25 @@ export class ServerProcess extends EventEmitter {
       await this.#say(this.schedule.warnMessage.replace('{min}', String(Math.ceil(left / 60_000))));
     }
 
-    if (kick) {
-      const warnAt = restartAt - kick.warnSeconds * 1000;
-      if (now >= warnAt && this.kickWarnedAt === null) {
+    // За kick.beforeMinutes до рестарта: предупреждение за warnSeconds, затем #lock и кик всех.
+    // Сервер при этом работает (закрыт для входа) и останавливается ровно во время рестарта.
+    if (kick && this.kickedAt === null) {
+      if (now >= kickAt - kick.warnSeconds * 1000 && this.kickWarnedAt === null) {
         this.kickWarnedAt = now;
         await this.#say(kick.warnMessage.replace('{sec}', String(kick.warnSeconds)));
       }
       // Кик не раньше чем через warnSeconds после предупреждения (важно для «рестарт через 1 мин»).
-      if (now < restartAt || this.kickWarnedAt === null || now - this.kickWarnedAt < kick.warnSeconds * 1000) return;
-    } else if (now < restartAt) {
-      return;
+      if (now >= kickAt && this.kickWarnedAt !== null && now - this.kickWarnedAt >= kick.warnSeconds * 1000) {
+        this.kickedAt = now;
+        await this.#kickAll(kick.reason);
+      }
     }
+    if (now < this.nextRestart || (kick && this.kickedAt === null)) return;
 
     this.manualRestart = false;
     this.nextRestart = null;
+    this.kickedAt = null;
     this.log.info('плановый рестарт');
-    if (kick) await this.#kickAll(kick.reason);
     await this.restart().catch((e) => this.log.error(`плановый рестарт не удался: ${e.message}`));
   }
 

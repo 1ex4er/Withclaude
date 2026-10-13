@@ -102,7 +102,16 @@ function scheduled(schedule) {
 test('рестарт по расписанию: 30/15/5/3 мин, предупреждение о кике, #lock, кик всех за 2 мин, рестарт ровно один раз', async () => {
   const { s, said } = scheduled();
   const at = (h, m, sec = 0) => new Date(2026, 9, 12, h, m, sec).getTime();
-  for (let t = at(15, 25); t <= at(16, 1); t += 5000) await s.scheduleStep(true, t);
+  let kickedAt = null;
+  let restartedAt = null;
+  for (let t = at(15, 25); t <= at(16, 1); t += 5000) {
+    await s.scheduleStep(true, t);
+    if (kickedAt === null && said.includes('#lock')) kickedAt = t;
+    if (restartedAt === null && said.includes('RESTART')) restartedAt = t;
+  }
+  // Кик и закрытие входа — за 2 минуты, а сама остановка с рестартом — ровно в 16:00.
+  assert.equal(kickedAt, at(15, 58));
+  assert.equal(restartedAt, at(16, 0));
   assert.deepEqual(said, [
     'say -1 через 30 мин',
     'say -1 через 15 мин',
@@ -137,6 +146,10 @@ test('«рестарт через N мин»: одно предупрежден�
   await s2.scheduleStep(true, t0 + 20_000);
   assert.ok(!said2.includes('RESTART'));
   await s2.scheduleStep(true, t0 + 30_000);
+  assert.equal(said2.at(-1), 'kick 1 Рестарт', 'кик через 30 с после предупреждения');
+  await s2.scheduleStep(true, t0 + 55_000);
+  assert.ok(!said2.includes('RESTART'), 'сервер работает до назначенного времени');
+  await s2.scheduleStep(true, t0 + 60_000);
   assert.equal(said2.at(-1), 'RESTART');
 });
 
