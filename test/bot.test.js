@@ -551,3 +551,48 @@ test('обновления модов: устаревшие по дате Worksh
     else process.env.STEAM_API_KEY = prev;
   }
 });
+
+test('тикеты группировок: пересылка, имя канала, допуск серверов, миграция БД', async () => {
+  const { relayText, slug, isFaction, FACTION_COMMANDS } = await import('../bot/src/modules/tickets.js');
+  assert.equal(relayText({ name: 'Игрок', content: 'привет' }, false), '**Игрок**: привет');
+  assert.equal(relayText({ name: 'Адм', content: 'ок', attachments: ['https://x/a.png'] }, true), '**Адм** · Администрация Blackout: ок\n📎 https://x/a.png');
+  assert.equal(relayText({ name: 'Игрок', content: '  ' }, false), null);
+  assert.ok(relayText({ name: 'Игрок', content: 'я'.repeat(3000) }, false).length <= 2000);
+  assert.equal(slug('Долг | Duty Clan!'), 'долг-duty-clan');
+  assert.equal(slug('!!!'), 'group');
+  const cfg = { guildId: '1', tickets: { factionGuilds: ['2'] } };
+  assert.ok(isFaction(cfg, '2'));
+  assert.ok(!isFaction(cfg, '3'));
+  assert.ok(!isFaction(cfg, '1'));
+  for (const c of FACTION_COMMANDS) c.toJSON();
+
+  const db = openDb(':memory:');
+  db.prepare("INSERT INTO tickets (discord_id, type, guild_id, mirror_id, created_at) VALUES ('u', 'help', '2', 'm', 0)").run();
+  assert.equal(db.prepare("SELECT * FROM tickets WHERE mirror_id = 'm'").get().guild_id, '2');
+});
+
+test('команды на сервере группировки: только /ticket-panel и только на подключённых серверах', async () => {
+  const { createRouter } = await import('../bot/src/core.js');
+  const calls = [];
+  const mod = { name: 'tickets', factionCommands: [{ name: 'ticket-panel' }], onCommand: async (i) => calls.push(i.guildId) };
+  const replies = [];
+  const ctx = { cfg: { guildId: '1', tickets: { factionGuilds: ['2'] } }, client: { ws: { ping: 0 } }, log: { warn() {}, error() {} } };
+  const route = createRouter([mod], ctx);
+  const make = (guildId, commandName) => ({
+    guildId,
+    commandName,
+    createdTimestamp: Date.now(),
+    isAutocomplete: () => false,
+    isChatInputCommand: () => true,
+    isContextMenuCommand: () => false,
+    isMessageComponent: () => false,
+    isModalSubmit: () => false,
+    reply: async (p) => replies.push(p),
+    deferReply: async () => {},
+  });
+  await route(make('2', 'ticket-panel'));
+  await route(make('3', 'ticket-panel'));
+  await route(make('2', 'ban'));
+  assert.deepEqual(calls, ['2']);
+  assert.equal(replies.length, 1); // посторонний сервер получил отказ
+});

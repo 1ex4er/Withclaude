@@ -39,6 +39,8 @@ const DEFAULTS = {
   logs: { admFollow: true },
   tickets: {
     categoryId: '',
+    // Серверы группировок: тикеты оттуда пересылаются на основной сервер (выбираются в /setup factions).
+    factionGuilds: [],
     maxOpenPerUser: 2,
     types: [
       { id: 'help', label: 'Вопрос', emoji: '❓' },

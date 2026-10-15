@@ -73,6 +73,12 @@ export function openDb(file) {
   try {
     db.exec("ALTER TABLE links ADD COLUMN method TEXT NOT NULL DEFAULT 'openid'");
   } catch {}
+  // Миграция: тикеты с серверов группировок — сервер автора и канал-зеркало на основном сервере.
+  for (const col of ['guild_id TEXT', 'mirror_id TEXT']) {
+    try {
+      db.exec(`ALTER TABLE tickets ADD COLUMN ${col}`);
+    } catch {}
+  }
 
   db.transaction =
     (fn) =>

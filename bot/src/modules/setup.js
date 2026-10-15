@@ -3,6 +3,7 @@
 //   /setup channels   — выпадающие списки каналов
 //   /setup show       — что сейчас настроено
 //   /setup roles-list — файл со всеми ролями сервера и их ID
+//   /setup factions   — серверы группировок, откуда тикеты идут на основной сервер
 
 import {
   ActionRowBuilder,
@@ -12,10 +13,12 @@ import {
   PermissionFlagsBits,
   RoleSelectMenuBuilder,
   SlashCommandBuilder,
+  StringSelectMenuBuilder,
 } from 'discord.js';
 import { listBackups, makeBackup } from '../backup.js';
 import { BotError } from '../core.js';
 import { getPath, saveSetting } from '../settings.js';
+import { registerFactionCommands } from './tickets.js';
 import { LEVEL, clip, embed } from '../util.js';
 
 // path — куда в конфиге, multi — можно несколько.
@@ -100,6 +103,8 @@ function describe(ctx) {
     const v = getPath(ctx.cfg, s.path);
     return `**${s.label}:** ${v ? `<#${v}>` : '—'}`;
   });
+  const factions = (ctx.cfg.tickets.factionGuilds ?? []).map((id) => ctx.client.guilds.cache.get(id)?.name ?? `\`${id}\` (бота там нет)`);
+  chans.push(`**Серверы группировок (тикеты):** ${factions.length ? factions.join(', ') : '—'}`);
   return [embed('info', 'Роли', lines.join('\n')), embed('info', 'Каналы', chans.join('\n'))];
 }
 
@@ -114,7 +119,8 @@ export default {
       .addSubcommand((s) => s.setName('channels').setDescription('Выбрать каналы'))
       .addSubcommand((s) => s.setName('show').setDescription('Текущие настройки'))
       .addSubcommand((s) => s.setName('roles-list').setDescription('Выгрузить все роли сервера с ID'))
-      .addSubcommand((s) => s.setName('backup').setDescription('Сделать бэкап базы бота сейчас')),
+      .addSubcommand((s) => s.setName('backup').setDescription('Сделать бэкап базы бота сейчас'))
+      .addSubcommand((s) => s.setName('factions').setDescription('Серверы группировок: тикеты оттуда приходят сюда')),
   ],
 
   async onCommand(i, ctx) {
@@ -133,6 +139,23 @@ export default {
       return;
     }
     if (sub === 'show') return i.reply({ embeds: describe(ctx), flags: ephemeral });
+
+    if (sub === 'factions') {
+      const guilds = [...ctx.client.guilds.cache.values()].filter((g) => g.id !== ctx.cfg.guildId).slice(0, 25);
+      if (!guilds.length) throw new BotError('Бот не добавлен ни на один другой сервер — сначала пригласи его на серверы группировок');
+      const current = new Set(ctx.cfg.tickets.factionGuilds ?? []);
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId('setup:factions')
+        .setPlaceholder('Серверы группировок')
+        .setMinValues(0)
+        .setMaxValues(guilds.length)
+        .addOptions(guilds.map((g) => ({ label: clip(g.name, 100), value: g.id, default: current.has(g.id) })));
+      return i.reply({
+        content: '**Серверы группировок** — тикеты с них будут приходить в категорию тикетов здесь. Затем на каждом сервере выполни `/ticket-panel` в нужном канале.',
+        components: [new ActionRowBuilder().addComponents(menu)],
+        flags: ephemeral,
+      });
+    }
 
     if (sub === 'backup') {
       const b = makeBackup(ctx.db, ctx.cfg.backup.dir, ctx.cfg.backup.keep);
@@ -164,6 +187,13 @@ export default {
 
   async onComponent(i, ctx, [kind, indexStr]) {
     ctx.require(i, LEVEL.admin);
+    if (kind === 'factions') {
+      saveSetting(ctx.cfg, ctx.db, 'tickets.factionGuilds', [...i.values]);
+      await i.deferReply({ flags: MessageFlags.Ephemeral });
+      await registerFactionCommands(ctx);
+      const names = i.values.map((id) => ctx.client.guilds.cache.get(id)?.name ?? id);
+      return i.editReply({ content: names.length ? `✅ Тикеты подключены: ${names.join(', ')}. Там появилась команда \`/ticket-panel\`.` : '✅ Серверы группировок отключены' });
+    }
     const slot = (kind === 'role' ? ROLE_SLOTS : CHANNEL_SLOTS)[Number(indexStr)];
     if (!slot) throw new BotError('Неизвестная настройка');
     let value;
