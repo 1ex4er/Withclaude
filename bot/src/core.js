@@ -125,9 +125,11 @@ export function autoDefer(i, log) {
 export function createRouter(modules, ctx) {
   const byCommand = new Map();
   const byPrefix = new Map();
+  const byFactionCommand = new Map(); // команды для серверов группировок
   for (const m of modules) {
     byPrefix.set(m.name, m);
     for (const c of m.commands ?? []) byCommand.set(c.name, m);
+    for (const c of m.factionCommands ?? []) byFactionCommand.set(c.name, m);
   }
 
   return async function route(interaction) {
@@ -141,8 +143,10 @@ export function createRouter(modules, ctx) {
         return;
       }
       if (interaction.isChatInputCommand() || interaction.isContextMenuCommand()) {
-        if (interaction.guildId !== ctx.cfg.guildId) throw new BotError('Команды работают только на сервере Blackout');
-        const m = byCommand.get(interaction.commandName);
+        let m;
+        if (interaction.guildId === ctx.cfg.guildId) m = byCommand.get(interaction.commandName);
+        else if (ctx.cfg.tickets.factionGuilds?.includes(interaction.guildId)) m = byFactionCommand.get(interaction.commandName);
+        else throw new BotError('Команды работают только на сервере Blackout');
         if (m) await m.onCommand(interaction, ctx);
         return;
       }
