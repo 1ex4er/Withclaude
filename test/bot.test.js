@@ -234,6 +234,25 @@ test('API сайта: привязка с сайта, карточка игро�
   }
 });
 
+test('оповещения с сайта: упоминания только выбранных ролей, пустое не уходит, без бота — понятная ошибка', async () => {
+  const { buildMessage, sendAnnouncement } = await import('../bot/src/announce.js');
+  const m = buildMessage({
+    content: 'Сбор у бара',
+    mentionRoles: ['123456789012345678', 'bad'],
+    embed: { title: 'Выброс', description: 'Через час', color: '#24c9ab', image: 'javascript:alert(1)', fields: [{ name: 'Где', value: 'Бар' }, { name: '', value: 'x' }] },
+  });
+  assert.equal(m.content, '<@&123456789012345678>\nСбор у бара');
+  assert.deepEqual(m.allowedMentions, { parse: [], roles: ['123456789012345678'] });
+  const e = m.embeds[0].toJSON();
+  assert.equal(e.title, 'Выброс');
+  assert.equal(e.image, undefined);
+  assert.equal(e.fields.length, 1);
+  assert.deepEqual(buildMessage({ mentionEveryone: true, content: 'a' }).allowedMentions.parse, ['everyone']);
+  assert.throws(() => buildMessage({ content: '  ', embed: { title: '' } }), /Пустое/);
+  await assert.rejects(sendAnnouncement({ cfg: { guildId: '1' }, client: null, log: {} }, { channelId: '123456789012345678', content: 'x' }), /Бот не в сети/);
+  await assert.rejects(sendAnnouncement({ cfg: { guildId: '1' }, client: null, log: {} }, { channelId: 'x', content: 'x' }), { status: 400 });
+});
+
 test('настройки из /setup накладываются на конфиг и переживают перезапуск', async () => {
   const { applySettings, saveSetting } = await import('../bot/src/settings.js');
   const db = openDb(':memory:');

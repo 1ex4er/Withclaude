@@ -6,7 +6,11 @@
 //   GET  /api/whitelist                    — SteamID из whitelist.txt (нужен агент)
 //   POST /api/whitelist { op, steamId, note }         — add | remove; без агента ждёт в очереди
 //   GET  /api/mods/updates[?refresh=1]     — какие моды обновились в Workshop
+//   GET  /api/discord/targets              — каналы, куда бот может писать, и роли для упоминания
+//   POST /api/discord/announce { channelId, content, embed, mentionRoles, mentionEveryone, publish, actor }
+//   POST /api/discord/delete   { channelId, messageId } — удалить отправленное оповещение
 
+import { deleteAnnouncement, listTargets, sendAnnouncement } from './announce.js';
 import { checkModUpdates } from './modules/modupdates.js';
 
 const STEAM_RE = /^\d{17}$/;
@@ -76,6 +80,11 @@ export function createSiteApi(ctx) {
       const applied = await ctx.whitelist.change(op, steamId, typeof note === 'string' ? note : undefined);
       return ok({ ok: true, applied });
     },
+
+    // Оповещения ивентологов и новостей (bot/src/announce.js).
+    'GET /api/discord/targets': async () => ok(await listTargets(ctx)),
+    'POST /api/discord/announce': async (_url, body) => ok(await sendAnnouncement(ctx, body)),
+    'POST /api/discord/delete': async (_url, body) => ok(await deleteAnnouncement(ctx, body)),
   };
 
   return {
@@ -87,6 +96,7 @@ export function createSiteApi(ctx) {
         return await route(url, method === 'POST' ? await readBody() : {});
       } catch (e) {
         if (e.code === 'agent_offline') return bad(503, 'Агент сервера не в сети');
+        if (e.status) return bad(e.status, e.message);
         if (e.code) return bad(502, e.message);
         throw e;
       }
