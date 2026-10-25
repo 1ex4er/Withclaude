@@ -29,6 +29,7 @@ const DEFAULTS = {
     modLog: '',
     adminLog: '',
     joinLeave: '',
+    memberLog: '', // входы и выходы участников Discord-сервера (modules/memberlog.js)
     killFeed: '',
     gameChat: '',
     applications: '',

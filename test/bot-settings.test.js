@@ -85,3 +85,15 @@ test('настройки бота: списки тем тикетов и пан�
   assert.equal(d.guild.roles.find((x) => x.id === HIGH).assignable, false);
   assert.equal(d.sections.flatMap((s) => s.fields).find((f) => f.path === 'selfRoles').saved, true);
 });
+
+test('лог входов: какое приглашение использовано', async () => {
+  const { usedInvite } = await import('../bot/src/modules/memberlog.js');
+  const before = new Map([['aaa', { uses: 3, inviterId: '1' }], ['bbb', { uses: 0, inviterId: '2' }]]);
+  assert.deepEqual(usedInvite(before, new Map([['aaa', { uses: 3, inviterId: '1' }], ['bbb', { uses: 1, inviterId: '2' }]])), { code: 'bbb', inviterId: '2' });
+  // Новое приглашение, которого не было в кэше.
+  assert.equal(usedInvite(before, new Map([...before, ['ccc', { uses: 1, inviterId: '3' }]])).code, 'ccc');
+  // Одноразовое исчезло после входа.
+  assert.equal(usedInvite(before, new Map([['aaa', { uses: 3, inviterId: '1' }]])).code, 'bbb');
+  assert.equal(usedInvite(before, before), null);
+  assert.equal(usedInvite(null, before), null);
+});

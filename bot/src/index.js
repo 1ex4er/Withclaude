@@ -52,6 +52,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent, // автомодерация (включить в Developer Portal)
     GatewayIntentBits.GuildModeration, // антинюк: баны и журнал аудита
+    GatewayIntentBits.GuildInvites, // лог входов: какое приглашение использовано
   ],
   partials: [Partials.GuildMember],
   allowedMentions: { parse: [], repliedUser: false },
