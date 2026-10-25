@@ -1,4 +1,5 @@
 // Игровые логи в каналы: входы/выходы, убийства, игровой чат. Источник — ADM-лог через агента.
+// Пишутся и на основной сервер, и на серверы группировок, где выбран такой же канал (ctx.targets).
 // Сообщения копятся и отправляются пачками раз в 2 с, чтобы не упираться в лимиты Discord.
 
 import { newestAdm, parseAdmLine } from '../adm.js';
@@ -40,12 +41,12 @@ export default {
         let chunk = '';
         for (const line of lines) {
           if (chunk.length + line.length + 1 > 1900) {
-            await ctx.post(channel, { content: chunk });
+            await ctx.postAll(channel, { content: chunk });
             chunk = '';
           }
           chunk += (chunk ? '\n' : '') + line;
         }
-        if (chunk) await ctx.post(channel, { content: chunk });
+        if (chunk) await ctx.postAll(channel, { content: chunk });
       }
     };
     setInterval(() => flush().catch((e) => ctx.log.warn(`логи: ${e.message}`)), FLUSH_MS);
@@ -56,7 +57,7 @@ export default {
         const ev = parseAdmLine(line);
         if (!ev) continue;
         const [channel, text] = format(ev);
-        if (!channel || !ctx.cfg.channels[channel]) continue;
+        if (!channel || !ctx.targets(channel).length) continue;
         if (!queues.has(channel)) queues.set(channel, []);
         queues.get(channel).push(text);
       }

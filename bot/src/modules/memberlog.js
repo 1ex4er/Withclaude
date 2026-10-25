@@ -1,4 +1,5 @@
-// Входы и выходы участников Discord-сервера — в канал channels.memberLog.
+// Входы и выходы участников Discord — в канал channels.memberLog основного сервера,
+// а на серверах группировок — в их guilds.<id>.channels.memberLog. Там же выдаётся guilds.<id>.joinRole.
 // Вход: возраст аккаунта, по какому приглашению, сколько теперь участников.
 // Выход: сколько был на сервере, роли, ушёл сам или кикнут/забанен (по журналу аудита).
 // Приглашения бот видит с правом «Управлять сервером», журнал аудита — с «Просматривать журнал аудита»;
@@ -44,20 +45,32 @@ export default {
   name: 'memberlog',
 
   async init(ctx) {
-    const guild = ctx.guild();
-    let invites = guild ? await fetchInvites(guild) : null;
-    if (guild && !invites) ctx.log.warn('входы в Discord: нет права «Управлять сервером» — приглашения не отслеживаются');
+    // Канал лога для сервера: основной или сервер группировки; null — не логируем.
+    const logChannel = (guildId) => (guildId === ctx.cfg.guildId ? ctx.cfg.channels.memberLog : ctx.faction(guildId)?.channels?.memberLog) || null;
+    const invites = new Map(); // guildId -> Map(code -> uses)
+    for (const guild of ctx.client.guilds.cache.values()) {
+      if (guild.id !== ctx.cfg.guildId && !ctx.faction(guild.id)) continue;
+      const list = await fetchInvites(guild);
+      if (list) invites.set(guild.id, list);
+      else ctx.log.warn(`входы в Discord (${guild.name}): нет права «Управлять сервером» — приглашения не отслеживаются`);
+    }
 
     ctx.client.on(Events.InviteCreate, (i) => {
-      if (i.guild?.id === ctx.cfg.guildId) invites?.set(i.code, { uses: i.uses ?? 0, inviterId: i.inviterId ?? null });
+      invites.get(i.guild?.id)?.set(i.code, { uses: i.uses ?? 0, inviterId: i.inviterId ?? null });
     });
 
     ctx.client.on(Events.GuildMemberAdd, async (member) => {
-      if (member.guild.id !== ctx.cfg.guildId) return;
+      const faction = ctx.faction(member.guild.id);
+      if (member.guild.id !== ctx.cfg.guildId && !faction) return;
       try {
+        if (faction?.joinRole && !member.user.bot) {
+          await member.roles.add(faction.joinRole, 'Роль при входе').catch((e) => ctx.log.warn(`роль при входе (${member.guild.name}): ${e.message}`));
+        }
+        const channelId = logChannel(member.guild.id);
+        if (!channelId) return;
         const after = await fetchInvites(member.guild);
-        const invite = usedInvite(invites, after);
-        if (after) invites = after;
+        const invite = usedInvite(invites.get(member.guild.id), after);
+        if (after) invites.set(member.guild.id, after);
 
         const created = member.user.createdTimestamp;
         const ageDays = (Date.now() - created) / 86400e3;
@@ -74,14 +87,15 @@ export default {
           )
           .setFooter({ text: `ID ${member.id}` });
         if (via) e.addFields({ name: 'Приглашение', value: via, inline: true });
-        await ctx.post('memberLog', { embeds: [e] });
+        await ctx.postTo(channelId, { embeds: [e] }, 'memberLog');
       } catch (err) {
         ctx.log.warn(`вход в Discord: ${err.message}`);
       }
     });
 
     ctx.client.on(Events.GuildMemberRemove, async (member) => {
-      if (member.guild.id !== ctx.cfg.guildId) return;
+      const channelId = logChannel(member.guild.id);
+      if (!channelId) return;
       try {
         const reason = await leaveReason(member.guild, member.id);
         const roles = member.roles?.cache
@@ -96,7 +110,7 @@ export default {
         e.addFields({ name: 'Участников', value: String(member.guild.memberCount), inline: true });
         if (roles.length) e.addFields({ name: `Роли (${roles.length})`, value: clip(roles.map((r) => `<@&${r.id}>`).join(' '), 1024) });
         e.setFooter({ text: `ID ${member.id}` });
-        await ctx.post('memberLog', { embeds: [e] });
+        await ctx.postTo(channelId, { embeds: [e] }, 'memberLog');
       } catch (err) {
         ctx.log.warn(`выход из Discord: ${err.message}`);
       }

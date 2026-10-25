@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { ChannelType } from 'discord.js';
 import { SECTIONS, describeSettings, updateSettings } from '../bot/src/bot-settings.js';
 import { DEFAULTS } from '../bot/src/config.js';
+import { createContext } from '../bot/src/core.js';
 import { openDb } from '../bot/src/db.js';
 import { getPath } from '../bot/src/settings.js';
 
@@ -11,29 +12,38 @@ const LOW = '200000000000000001';
 const HIGH = '200000000000000002';
 const TEXT = '300000000000000001';
 const CAT = '300000000000000002';
+const FACTION = '100000000000000009';
 
-function fakeCtx() {
+// Сервер с ролями LOW (ниже бота) и HIGH (выше), текстовым каналом и категорией.
+function fakeGuild(id, name, n = 0) {
   const map = (items) => new Map(items.map((x) => [x.id, x]));
-  const roles = map([
-    { id: GUILD, name: '@everyone', position: 0, managed: false, hexColor: '#000000' },
-    { id: LOW, name: 'Сталкер', position: 1, managed: false, hexColor: '#00ff00' },
-    { id: HIGH, name: 'Гл. Админ', position: 9, managed: false, hexColor: '#ff0000' },
-  ]);
-  const guild = {
-    id: GUILD,
-    name: 'Blackout',
-    roles: { cache: roles },
-    channels: { cache: map([{ id: TEXT, name: 'общий', type: ChannelType.GuildText, rawPosition: 1 }, { id: CAT, name: 'Тикеты', type: ChannelType.GuildCategory, rawPosition: 0 }]) },
+  const roleId = (r) => (n ? r.slice(0, -2) + String(n) + r.slice(-1) : r);
+  return {
+    id,
+    name,
+    roles: {
+      cache: map([
+        { id, name: '@everyone', position: 0, managed: false, hexColor: '#000000' },
+        { id: roleId(LOW), name: 'Сталкер', position: 1, managed: false, hexColor: '#00ff00' },
+        { id: roleId(HIGH), name: 'Гл. Админ', position: 9, managed: false, hexColor: '#ff0000' },
+      ]),
+    },
+    channels: {
+      cache: map([
+        { id: roleId(TEXT), name: 'общий', type: ChannelType.GuildText, rawPosition: 1 },
+        { id: roleId(CAT), name: 'Тикеты', type: ChannelType.GuildCategory, rawPosition: 0 },
+      ]),
+    },
     members: { me: { roles: { highest: { name: 'Бот', position: 5 } } } },
   };
-  return {
-    cfg: structuredClone({ ...DEFAULTS, guildId: GUILD, backup: { ...DEFAULTS.backup, dir: 'nonexistent-backups' } }),
-    db: openDb(':memory:'),
-    client: { guilds: { cache: new Map([[GUILD, guild]]) }, isReady: () => true },
-    agent: { online: false },
-    log: { info() {}, warn() {} },
-    guild: () => guild,
-  };
+}
+
+function fakeCtx() {
+  const guild = fakeGuild(GUILD, 'Blackout');
+  const faction = fakeGuild(FACTION, 'БАНДИТЫ', 7);
+  const cfg = structuredClone({ ...DEFAULTS, guildId: GUILD, backup: { ...DEFAULTS.backup, dir: 'nonexistent-backups' } });
+  const client = { guilds: { cache: new Map([[GUILD, guild], [FACTION, faction]]) }, isReady: () => true };
+  return createContext({ client, cfg, db: openDb(':memory:'), agent: { online: false }, log: { info() {}, warn() {} } });
 }
 
 test('настройки бота: у каждого поля есть путь в конфиге по умолчанию и тип', () => {
@@ -108,4 +118,31 @@ test('настройки бота: роль бота запрашивается 
   assert.equal(d.guild.botRole.position, 5);
   await updateSettings(ctx, { values: { 'roles.verified': LOW } });
   assert.equal(ctx.cfg.roles.verified, LOW);
+});
+
+test('серверы группировок: своя вкладка, роли и каналы своего сервера, рассылка по каналам', async () => {
+  const ctx = fakeCtx();
+  const F_TEXT = '300000000000000071';
+  const F_LOW = '200000000000000071';
+  // Пока сервер не подключён — его настройки не принимаются.
+  const at = (key) => `guilds.${FACTION}.${key}`;
+  await assert.rejects(updateSettings(ctx, { values: { [at('channels.status')]: F_TEXT } }), /Неизвестная настройка/);
+  await updateSettings(ctx, { values: { 'tickets.factionGuilds': [FACTION], 'channels.status': TEXT } });
+
+  const d = await describeSettings(ctx);
+  const tab = d.sections.find((s) => s.guildId === FACTION);
+  assert.equal(tab.title, 'БАНДИТЫ');
+  assert.equal(d.factions[0].id, FACTION);
+
+  // Канал основного сервера на сервере группировки не подходит.
+  await assert.rejects(updateSettings(ctx, { values: { [at('channels.status')]: TEXT } }), /канал не найден/);
+  await updateSettings(ctx, { values: { [at('channels.status')]: F_TEXT, [at('joinRole')]: F_LOW, [at('automod')]: true } });
+  assert.deepEqual(ctx.targets('status'), [TEXT, F_TEXT]);
+  assert.deepEqual(ctx.targets('killFeed'), []);
+  assert.equal(ctx.faction(FACTION).automod, true);
+  assert.equal(ctx.faction(GUILD), null);
+
+  // Отключили сервер — его каналы больше не получают рассылку.
+  await updateSettings(ctx, { values: { 'tickets.factionGuilds': [] } });
+  assert.deepEqual(ctx.targets('status'), [TEXT]);
 });

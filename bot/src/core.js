@@ -18,8 +18,7 @@ export function createContext({ client, cfg, db, agent, links, log }) {
     log,
     guild: () => client.guilds.cache.get(cfg.guildId) ?? null,
 
-    async channel(name) {
-      const id = cfg.channels[name];
+    async channelById(id, name = id) {
       if (!id) return null;
       try {
         return client.channels.cache.get(id) ?? (await client.channels.fetch(id));
@@ -29,9 +28,10 @@ export function createContext({ client, cfg, db, agent, links, log }) {
       }
     },
 
-    // Отправка в служебный канал; если канал не настроен — молча пропускаем.
-    async post(name, payload) {
-      const ch = await ctx.channel(name);
+    channel: (name) => ctx.channelById(cfg.channels[name], name),
+
+    async postTo(id, payload, name = id) {
+      const ch = await ctx.channelById(id, name);
       if (!ch?.isTextBased()) return null;
       return ch.send({ allowedMentions: { parse: [] }, ...payload }).catch((e) => {
         log.warn(`не удалось отправить в ${name}: ${e.message}`);
@@ -39,19 +39,35 @@ export function createContext({ client, cfg, db, agent, links, log }) {
       });
     },
 
+    // Отправка в служебный канал; если канал не настроен — молча пропускаем.
+    post: (name, payload) => ctx.postTo(cfg.channels[name], payload, name),
+
+    // Настройки сервера группировки (guilds.<id> в конфиге); null — сервер не подключён в tickets.factionGuilds.
+    faction: (guildId) => ((cfg.tickets.factionGuilds ?? []).includes(guildId) && guildId !== cfg.guildId ? (cfg.guilds[guildId] ?? {}) : null),
+
+    // Каналы с таким назначением: основной сервер + серверы группировок, где этот канал выбран.
+    targets(name) {
+      const ids = [cfg.channels[name]];
+      for (const g of cfg.tickets.factionGuilds ?? []) ids.push(ctx.faction(g)?.channels?.[name]);
+      return [...new Set(ids.filter(Boolean))];
+    },
+
+    // То же, что post, но во все каналы этого назначения.
+    postAll: (name, payload) => Promise.all(ctx.targets(name).map((id) => ctx.postTo(id, payload, name))),
+
     level: (member) => staffLevel(member, cfg.roles),
 
     require(interaction, level) {
       if (ctx.level(interaction.member) < level) throw new BotError(`Нужны права: ${LEVEL_NAME[level]}`);
     },
 
-    // Журнал действий персонала.
-    audit(title, fields, color = 'info') {
+    // Журнал действий персонала; channelId — другой канал вместо лога модерации (серверы группировок).
+    audit(title, fields, color = 'info', channelId = null) {
       const e = embed(color, title);
       for (const [name, value] of Object.entries(fields)) {
         if (value !== undefined && value !== null && value !== '') e.addFields({ name, value: String(value).slice(0, 1024), inline: String(value).length < 40 });
       }
-      return ctx.post('modLog', { embeds: [e] });
+      return channelId ? ctx.postTo(channelId, { embeds: [e] }, 'modLog') : ctx.post('modLog', { embeds: [e] });
     },
   };
   return ctx;

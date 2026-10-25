@@ -175,7 +175,30 @@ export const SECTIONS = [
   },
 ];
 
+// Вкладка каждого сервера группировки: пути вида guilds.<id>.<путь ниже>, роли и каналы — того сервера.
+export const FACTION_FIELDS = [
+  { path: 'channels.status', label: 'Онлайн сервера (живое сообщение)', type: 'channel', hint: 'Бот держит в канале одно сообщение со статусом и обновляет его' },
+  { path: 'channels.joinLeave', label: 'Входы и выходы на игровом сервере', type: 'channel' },
+  { path: 'channels.killFeed', label: 'Килфид', type: 'channel', hint: 'Осторожно: видно, кто кого убил — может давать метагейм' },
+  { path: 'channels.gameChat', label: 'Игровой чат', type: 'channel' },
+  { path: 'channels.memberLog', label: 'Входы и выходы участников этого Discord', type: 'channel' },
+  { path: 'joinRole', label: 'Роль при входе на этот Discord', type: 'role', assign: true },
+  { path: 'automod', label: 'Автомодерация на этом сервере', type: 'bool', hint: 'Правила — как на основном (вкладка «Автомодерация»). Администраторы сервера не проверяются' },
+  { path: 'channels.modLog', label: 'Лог автомодерации', type: 'channel', hint: 'Пусто — в лог модерации основного сервера' },
+];
+
 const FIELDS = new Map(SECTIONS.flatMap((s) => s.fields.map((f) => [f.path, f])));
+const FACTION_BY_PATH = new Map(FACTION_FIELDS.map((f) => [f.path, f]));
+const FACTION_RE = /^guilds\.(\d{17,20})\.(.+)$/;
+
+// Поле по пути: обычное или поле сервера группировки (только для подключённых в tickets.factionGuilds).
+function fieldFor(ctx, p) {
+  if (FIELDS.has(p)) return FIELDS.get(p);
+  const m = FACTION_RE.exec(p);
+  const tpl = m && FACTION_BY_PATH.get(m[2]);
+  if (!tpl || !ctx.faction(m[1])) return null;
+  return { ...tpl, path: p, guildId: m[1] };
+}
 
 // Хуки после сохранения: то, что нужно применить в Discord сразу.
 const AFTER = {
@@ -191,12 +214,7 @@ async function botRole(guild) {
   return me?.roles?.highest ?? null;
 }
 
-// Позиция роли бота для проверок checkRole; выставляется в updateSettings перед проверкой (проверка синхронная).
-let botTop = 0;
-
-async function guildInfo(ctx) {
-  const guild = ctx.guild();
-  if (!guild) return null;
+async function guildInfo(guild) {
   const highest = await botRole(guild);
   const top = highest?.position ?? 0;
   const roles = [...guild.roles.cache.values()]
@@ -208,8 +226,7 @@ async function guildInfo(ctx) {
     .filter((c) => KIND[c.type])
     .sort((a, b) => (a.parent?.rawPosition ?? a.rawPosition) - (b.parent?.rawPosition ?? b.rawPosition) || a.rawPosition - b.rawPosition)
     .map((c) => ({ id: c.id, name: c.name, kind: KIND[c.type], category: c.parent?.name ?? '' }));
-  const guilds = [...ctx.client.guilds.cache.values()].filter((g) => g.id !== guild.id).map((g) => ({ id: g.id, name: g.name }));
-  return { id: guild.id, name: guild.name, botRole: highest ? { name: highest.name, position: highest.position } : null, roles, channels, guilds };
+  return { id: guild.id, name: guild.name, botRole: highest ? { name: highest.name, position: highest.position } : null, roles, channels };
 }
 
 // Короткий коммит из .git без запуска git — чтобы видеть, какая версия бота работает.
@@ -231,8 +248,16 @@ function version() {
 const startedAt = Date.now();
 const VERSION = version();
 
+const factionGuilds = (ctx) =>
+  (ctx.cfg.tickets.factionGuilds ?? []).map((id) => ctx.client.guilds.cache.get(id)).filter((g) => g && g.id !== ctx.cfg.guildId);
+
 export async function describeSettings(ctx) {
   const saved = savedSettings(ctx.db);
+  const value = (f) => ({ ...f, value: getPath(ctx.cfg, f.path) ?? null, saved: f.path in saved });
+  const main = ctx.guild();
+  const guild = main ? await guildInfo(main) : null;
+  if (guild) guild.guilds = [...ctx.client.guilds.cache.values()].filter((g) => g.id !== main.id).map((g) => ({ id: g.id, name: g.name }));
+  const factions = await Promise.all(factionGuilds(ctx).map(guildInfo));
   return {
     bot: {
       online: ctx.client?.isReady?.() ?? false,
@@ -243,35 +268,43 @@ export async function describeSettings(ctx) {
       agent: ctx.agent.online,
       restartPending: ctx.db.kv.get('settings.restartAfter', 0) > startedAt,
     },
-    guild: await guildInfo(ctx),
+    guild,
+    factions,
     backups: listBackups(ctx.cfg.backup.dir).slice(-5).reverse(),
-    sections: SECTIONS.map((s) => ({
-      ...s,
-      fields: s.fields.map((f) => ({ ...f, value: getPath(ctx.cfg, f.path) ?? null, saved: f.path in saved })),
-    })),
+    sections: [
+      ...SECTIONS.map((s) => ({ ...s, fields: s.fields.map(value) })),
+      ...factions.map((g) => ({
+        id: `guild-${g.id}`,
+        title: g.name,
+        guildId: g.id,
+        hint: 'Сервер группировки: тикеты отсюда приходят на основной сервер, а сюда бот пишет выбранное ниже. Пустой канал — выключено.',
+        fields: FACTION_FIELDS.map((f) => value({ ...f, path: `guilds.${g.id}.${f.path}`, guildId: g.id })),
+      })),
+    ],
   };
 }
 
 // ------------------------------------------------------------- проверка значений
+// env: { ctx, guild — сервер, чьи роли и каналы выбираются, top — позиция роли бота на нём }.
 
 function checkId(value, label) {
   if (typeof value !== 'string' || (value !== '' && !ID_RE.test(value))) throw fail(`${label}: неверный ID`);
   return value;
 }
 
-function checkRole(ctx, id, field, label) {
+function checkRole(env, id, field, label) {
   if (!id) return id;
-  const role = ctx.guild()?.roles.cache.get(id);
+  const role = env.guild?.roles.cache.get(id);
   if (!role) throw fail(`${label}: роли нет на сервере`);
   if (field.assign) {
-    if (role.managed || role.position >= botTop) throw fail(`${label}: бот не может выдавать «${role.name}» — поднимите роль бота выше`);
+    if (role.managed || role.position >= env.top) throw fail(`${label}: бот не может выдавать «${role.name}» — поднимите роль бота выше`);
   }
   return id;
 }
 
-function checkChannel(ctx, id, label, kinds) {
+function checkChannel(env, id, label, kinds) {
   if (!id) return id;
-  const ch = ctx.guild()?.channels.cache.get(id);
+  const ch = env.guild?.channels.cache.get(id);
   if (!ch || !kinds.includes(ch.type)) throw fail(`${label}: канал не найден`);
   return id;
 }
@@ -283,7 +316,7 @@ function lines(value, max, label) {
   return out;
 }
 
-function checkScalar(ctx, field, value, label) {
+function checkScalar(env, field, value, label) {
   switch (field.type) {
     case 'bool':
       if (typeof value !== 'boolean') throw fail(`${label}: да/нет`);
@@ -305,26 +338,26 @@ function checkScalar(ctx, field, value, label) {
       if (!field.options.some((o) => o.value === value)) throw fail(`${label}: неверный вариант`);
       return value;
     case 'role':
-      return checkRole(ctx, checkId(value, label), field, label);
+      return checkRole(env, checkId(value, label), field, label);
     default:
       throw fail(`${label}: неизвестный тип`);
   }
 }
 
-export function checkValue(ctx, field, value) {
+function checkValue(env, field, value) {
   const label = field.label;
   switch (field.type) {
     case 'roles': {
       const ids = lines(value, 25, label);
-      return [...new Set(ids)].map((id) => checkRole(ctx, checkId(id, label), field, label));
+      return [...new Set(ids)].map((id) => checkRole(env, checkId(id, label), field, label));
     }
     case 'channel':
-      return checkChannel(ctx, checkId(value, label), label, [ChannelType.GuildText, ChannelType.GuildAnnouncement]);
+      return checkChannel(env, checkId(value, label), label, [ChannelType.GuildText, ChannelType.GuildAnnouncement]);
     case 'category':
-      return checkChannel(ctx, checkId(value, label), label, [ChannelType.GuildCategory]);
+      return checkChannel(env, checkId(value, label), label, [ChannelType.GuildCategory]);
     case 'guilds': {
       const ids = [...new Set(lines(value, 25, label))];
-      for (const id of ids) if (!ctx.client.guilds.cache.has(checkId(id, label))) throw fail(`${label}: бота нет на сервере ${id}`);
+      for (const id of ids) if (!env.ctx.client.guilds.cache.has(checkId(id, label))) throw fail(`${label}: бота нет на сервере ${id}`);
       return ids;
     }
     case 'ids':
@@ -354,7 +387,7 @@ export function checkValue(ctx, field, value) {
       if (!Array.isArray(value) || value.length > field.max) throw fail(`${label}: не больше ${field.max} строк`);
       const out = value.map((row, n) => {
         if (!row || typeof row !== 'object') throw fail(`${label}: строка ${n + 1}`);
-        return Object.fromEntries(field.item.map((f) => [f.key, checkScalar(ctx, f, row[f.key] ?? '', `${label}, строка ${n + 1}: ${f.label}`)]));
+        return Object.fromEntries(field.item.map((f) => [f.key, checkScalar(env, f, row[f.key] ?? '', `${label}, строка ${n + 1}: ${f.label}`)]));
       });
       const key = field.item[0].key;
       const keys = out.map((r) => r[key]);
@@ -364,7 +397,7 @@ export function checkValue(ctx, field, value) {
       return out.map((r) => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== '')));
     }
     default:
-      return checkScalar(ctx, field, value, label);
+      return checkScalar(env, field, value, label);
   }
 }
 
@@ -372,15 +405,27 @@ export function checkValue(ctx, field, value) {
 export async function updateSettings(ctx, body) {
   const values = body?.values && typeof body.values === 'object' ? body.values : {};
   const reset = Array.isArray(body?.reset) ? body.reset : [];
-  const guild = ctx.guild();
-  botTop = guild ? ((await botRole(guild))?.position ?? 0) : 0;
+  // Роль бота запрашивается один раз на сервер.
+  const envs = new Map();
+  const envFor = async (guildId) => {
+    if (!envs.has(guildId)) {
+      const guild = (guildId ? ctx.client.guilds.cache.get(guildId) : ctx.guild()) ?? null;
+      envs.set(guildId, { ctx, guild, top: guild ? ((await botRole(guild))?.position ?? 0) : 0 });
+    }
+    return envs.get(guildId);
+  };
   const changes = [];
   for (const [p, v] of Object.entries(values)) {
-    const field = FIELDS.get(p);
+    const field = fieldFor(ctx, p);
     if (!field) throw fail(`Неизвестная настройка ${p}`);
-    changes.push([field, checkValue(ctx, field, v)]);
+    changes.push([field, checkValue(await envFor(field.guildId ?? null), field, v)]);
   }
-  for (const p of reset) if (!FIELDS.has(p)) throw fail(`Неизвестная настройка ${p}`);
+  const resets = [];
+  for (const p of reset) {
+    const field = fieldFor(ctx, p);
+    if (!field) throw fail(`Неизвестная настройка ${p}`);
+    resets.push(field);
+  }
 
   const changed = [];
   for (const [field, value] of changes) {
@@ -388,7 +433,7 @@ export async function updateSettings(ctx, body) {
     saveSetting(ctx.cfg, ctx.db, field.path, value);
     changed.push(field);
   }
-  for (const p of reset) if (resetSetting(ctx.cfg, ctx.db, p)) changed.push(FIELDS.get(p));
+  for (const f of resets) if (resetSetting(ctx.cfg, ctx.db, f.path)) changed.push(f);
 
   const restart = changed.some((f) => f.restart);
   if (restart) ctx.db.kv.set('settings.restartAfter', Date.now());

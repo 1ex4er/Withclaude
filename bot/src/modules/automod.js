@@ -1,5 +1,7 @@
 // Автомодерация: скам-ссылки (часто от взломанных аккаунтов), чужие инвайты, флуд, масс-упоминания.
 // Персонал и роли из automod.exemptRoles не проверяются.
+// На серверах группировок — если включено guilds.<id>.automod; там не проверяются их администраторы,
+// а лог идёт в guilds.<id>.channels.modLog (пусто — в лог модерации основного сервера).
 
 import { Events, PermissionFlagsBits } from 'discord.js';
 import { SpamTracker, detectScam, hasInvite } from '../automod-rules.js';
@@ -25,16 +27,17 @@ export default {
         .send({ content: `<@${message.author.id}>, ${reason} — ${action}.`, allowedMentions: { users: [message.author.id] } })
         .catch(() => null);
       if (notice) setTimeout(() => notice.delete().catch(() => {}), 8000);
-      ctx.audit(
-        '🤖 Автомодерация',
-        { Участник: `<@${message.author.id}>`, Канал: `<#${message.channel.id}>`, Причина: reason, Действие: action, Текст: clip(message.content || '—', 900) },
-        'warn',
-      );
+      const fields = { Участник: `<@${message.author.id}>`, Канал: `<#${message.channel.id}>`, Причина: reason, Действие: action, Текст: clip(message.content || '—', 900) };
+      const faction = ctx.faction(message.guild.id);
+      if (!faction) return ctx.audit('🤖 Автомодерация', fields, 'warn');
+      if (faction.channels?.modLog) return ctx.audit('🤖 Автомодерация', fields, 'warn', faction.channels.modLog);
+      return ctx.audit(`🤖 Автомодерация · ${message.guild.name}`, { ...fields, Участник: `${message.author.tag} (${message.author.id})` }, 'warn');
     };
 
     ctx.client.on(Events.MessageCreate, async (message) => {
       try {
-        if (!message.guild || message.guild.id !== ctx.cfg.guildId || message.author.bot || !message.member) return;
+        if (!message.guild || message.author.bot || !message.member) return;
+        if (message.guild.id !== ctx.cfg.guildId && !ctx.faction(message.guild.id)?.automod) return;
         if (ctx.level(message.member) > 0) return;
         if (cfg.exemptRoles.some((r) => message.member.roles.cache.has(r))) return;
         const text = message.content ?? '';

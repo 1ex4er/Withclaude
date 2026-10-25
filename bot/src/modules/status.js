@@ -64,13 +64,22 @@ async function refresh(ctx) {
     status: data.status?.running ? 'online' : 'idle',
   });
 
-  const ch = await ctx.channel('status');
-  if (!ch?.isTextBased()) return;
+  // Живое сообщение в каждом канале статуса (основной сервер и серверы группировок).
   const payload = { embeds: [statusEmbed(ctx, data)] };
-  const id = ctx.db.kv.get('status.message');
-  const msg = id ? await ch.messages.fetch(id).catch(() => null) : null;
-  if (msg) await msg.edit(payload);
-  else ctx.db.kv.set('status.message', (await ch.send(payload)).id);
+  for (const channelId of ctx.targets('status')) {
+    try {
+      const ch = await ctx.channelById(channelId, 'status');
+      if (!ch?.isTextBased()) continue;
+      // Ключ основного канала — прежний, чтобы бот не создал второе сообщение после обновления.
+      const key = channelId === ctx.cfg.channels.status ? 'status.message' : `status.message.${channelId}`;
+      const id = ctx.db.kv.get(key);
+      const msg = id ? await ch.messages.fetch(id).catch(() => null) : null;
+      if (msg) await msg.edit(payload);
+      else ctx.db.kv.set(key, (await ch.send(payload)).id);
+    } catch (e) {
+      ctx.log.warn(`статус в ${channelId}: ${e.message}`);
+    }
+  }
 }
 
 const ALERTS = {
