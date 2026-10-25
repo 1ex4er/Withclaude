@@ -9,8 +9,14 @@
 //   GET  /api/discord/targets              — каналы, куда бот может писать, и роли для упоминания
 //   POST /api/discord/announce { channelId, content, embed, mentionRoles, mentionEveryone, publish, actor }
 //   POST /api/discord/delete   { channelId, messageId } — удалить отправленное оповещение
+//   GET  /api/settings                     — все настройки бота (описание + значения), роли и каналы Discord
+//   POST /api/settings { values, reset, actor } — сохранить (bot-settings.js)
+//   POST /api/bot/backup                   — бэкап bot.db сейчас
+//   POST /api/bot/restart                  — перезапуск бота (systemd поднимет заново)
 
 import { deleteAnnouncement, listTargets, sendAnnouncement } from './announce.js';
+import { makeBackup } from './backup.js';
+import { describeSettings, updateSettings } from './bot-settings.js';
 import { checkModUpdates } from './modules/modupdates.js';
 
 const STEAM_RE = /^\d{17}$/;
@@ -85,6 +91,17 @@ export function createSiteApi(ctx) {
     'GET /api/discord/targets': async () => ok(await listTargets(ctx)),
     'POST /api/discord/announce': async (_url, body) => ok(await sendAnnouncement(ctx, body)),
     'POST /api/discord/delete': async (_url, body) => ok(await deleteAnnouncement(ctx, body)),
+
+    // Вкладка «Бот» в админке сайта.
+    'GET /api/settings': () => ok(describeSettings(ctx)),
+    'POST /api/settings': async (_url, body) => ok(await updateSettings(ctx, body)),
+    'POST /api/bot/backup': () => ok(makeBackup(ctx.db, ctx.cfg.backup.dir, ctx.cfg.backup.keep)),
+    'POST /api/bot/restart': (_url, body) => {
+      ctx.log.info(`перезапуск с сайта (${typeof body.actor?.name === 'string' ? body.actor.name : 'сайт'})`);
+      // Ответ успевает уйти; SIGTERM — обычная остановка, systemd (Restart=always) поднимет бота заново.
+      setTimeout(() => process.kill(process.pid, 'SIGTERM'), 500);
+      return ok({ ok: true });
+    },
   };
 
   return {

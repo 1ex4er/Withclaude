@@ -55,6 +55,8 @@ const DEFAULTS = {
   // Внешние базы банов (HunterEye и т.п.), см. bot/src/bancheck.js. Steam проверяется при STEAM_API_KEY в .env.
   banCheck: { providers: [], alertOnLink: true },
   verify: { minAccountAgeDays: 3, askSteam: true, manualApproval: false },
+  // Панель самовыдачи ролей: [{ id, label, emoji }].
+  selfRoles: [],
   // RP-наказания: роль на каждый тип (выбираются в /setup roles).
   punishments: { roles: { nlr: '', nonrp: '', pg: '', rdm: '', meta: '', ban: '' } },
   backup: { keep: 14, intervalHours: 24 },
