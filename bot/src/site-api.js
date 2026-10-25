@@ -93,7 +93,7 @@ export function createSiteApi(ctx) {
     'POST /api/discord/delete': async (_url, body) => ok(await deleteAnnouncement(ctx, body)),
 
     // Вкладка «Бот» в админке сайта.
-    'GET /api/settings': () => ok(describeSettings(ctx)),
+    'GET /api/settings': async () => ok(await describeSettings(ctx)),
     'POST /api/settings': async (_url, body) => ok(await updateSettings(ctx, body)),
     'POST /api/bot/backup': () => ok(makeBackup(ctx.db, ctx.cfg.backup.dir, ctx.cfg.backup.keep)),
     'POST /api/bot/restart': (_url, body) => {

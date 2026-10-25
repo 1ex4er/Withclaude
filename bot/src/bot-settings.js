@@ -184,11 +184,21 @@ const AFTER = {
 
 const fail = (message) => Object.assign(new Error(message), { status: 400 });
 
-function guildInfo(ctx) {
+// Высшая роль бота. Сразу после перезапуска members.me бывает без ролей — тогда спрашиваем Discord.
+async function botRole(guild) {
+  let me = guild.members.me;
+  if (!me?.roles?.highest) me = await guild.members.fetchMe({ force: true }).catch(() => null);
+  return me?.roles?.highest ?? null;
+}
+
+// Позиция роли бота для проверок checkRole; выставляется в updateSettings перед проверкой (проверка синхронная).
+let botTop = 0;
+
+async function guildInfo(ctx) {
   const guild = ctx.guild();
   if (!guild) return null;
-  const me = guild.members.me;
-  const top = me?.roles.highest.position ?? 0;
+  const highest = await botRole(guild);
+  const top = highest?.position ?? 0;
   const roles = [...guild.roles.cache.values()]
     .filter((r) => r.id !== guild.id)
     .sort((a, b) => b.position - a.position)
@@ -199,7 +209,7 @@ function guildInfo(ctx) {
     .sort((a, b) => (a.parent?.rawPosition ?? a.rawPosition) - (b.parent?.rawPosition ?? b.rawPosition) || a.rawPosition - b.rawPosition)
     .map((c) => ({ id: c.id, name: c.name, kind: KIND[c.type], category: c.parent?.name ?? '' }));
   const guilds = [...ctx.client.guilds.cache.values()].filter((g) => g.id !== guild.id).map((g) => ({ id: g.id, name: g.name }));
-  return { id: guild.id, name: guild.name, botRole: me ? { name: me.roles.highest.name, position: me.roles.highest.position } : null, roles, channels, guilds };
+  return { id: guild.id, name: guild.name, botRole: highest ? { name: highest.name, position: highest.position } : null, roles, channels, guilds };
 }
 
 // Короткий коммит из .git без запуска git — чтобы видеть, какая версия бота работает.
@@ -221,7 +231,7 @@ function version() {
 const startedAt = Date.now();
 const VERSION = version();
 
-export function describeSettings(ctx) {
+export async function describeSettings(ctx) {
   const saved = savedSettings(ctx.db);
   return {
     bot: {
@@ -233,7 +243,7 @@ export function describeSettings(ctx) {
       agent: ctx.agent.online,
       restartPending: ctx.db.kv.get('settings.restartAfter', 0) > startedAt,
     },
-    guild: guildInfo(ctx),
+    guild: await guildInfo(ctx),
     backups: listBackups(ctx.cfg.backup.dir).slice(-5).reverse(),
     sections: SECTIONS.map((s) => ({
       ...s,
@@ -254,8 +264,7 @@ function checkRole(ctx, id, field, label) {
   const role = ctx.guild()?.roles.cache.get(id);
   if (!role) throw fail(`${label}: роли нет на сервере`);
   if (field.assign) {
-    const top = ctx.guild().members.me?.roles.highest.position ?? 0;
-    if (role.managed || role.position >= top) throw fail(`${label}: бот не может выдавать «${role.name}» — поднимите роль бота выше`);
+    if (role.managed || role.position >= botTop) throw fail(`${label}: бот не может выдавать «${role.name}» — поднимите роль бота выше`);
   }
   return id;
 }
@@ -363,6 +372,8 @@ export function checkValue(ctx, field, value) {
 export async function updateSettings(ctx, body) {
   const values = body?.values && typeof body.values === 'object' ? body.values : {};
   const reset = Array.isArray(body?.reset) ? body.reset : [];
+  const guild = ctx.guild();
+  botTop = guild ? ((await botRole(guild))?.position ?? 0) : 0;
   const changes = [];
   for (const [p, v] of Object.entries(values)) {
     const field = FIELDS.get(p);

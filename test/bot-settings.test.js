@@ -81,7 +81,7 @@ test('настройки бота: списки тем тикетов и пан�
   await updateSettings(ctx, { values: { selfRoles: [{ id: LOW, label: 'Новости', emoji: '📰' }], 'modUpdates.ids': { '@Mod': '3812171981' } } });
   assert.equal(ctx.cfg.selfRoles[0].id, LOW);
 
-  const d = describeSettings(ctx);
+  const d = await describeSettings(ctx);
   assert.equal(d.guild.roles.find((x) => x.id === HIGH).assignable, false);
   assert.equal(d.sections.flatMap((s) => s.fields).find((f) => f.path === 'selfRoles').saved, true);
 });
@@ -96,4 +96,16 @@ test('лог входов: какое приглашение использов�
   assert.equal(usedInvite(before, new Map([['aaa', { uses: 3, inviterId: '1' }]])).code, 'bbb');
   assert.equal(usedInvite(before, before), null);
   assert.equal(usedInvite(null, before), null);
+});
+
+test('настройки бота: роль бота запрашивается заново, если после перезапуска её нет в кэше', async () => {
+  const ctx = fakeCtx();
+  const guild = ctx.guild();
+  const real = guild.members.me;
+  guild.members.me = { roles: {} };
+  guild.members.fetchMe = async () => real;
+  const d = await describeSettings(ctx);
+  assert.equal(d.guild.botRole.position, 5);
+  await updateSettings(ctx, { values: { 'roles.verified': LOW } });
+  assert.equal(ctx.cfg.roles.verified, LOW);
 });
