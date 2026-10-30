@@ -29,6 +29,9 @@ if (process.env.DISCORD_PROXY) {
   class ProxiedWebSocket extends Original {
     constructor(address, protocols, options) {
       super(address, protocols, { ...options, agent });
+      // @discordjs/ws снимает свой onerror при разрыве, а таймаут рукопожатия может сработать позже:
+      // ошибка без слушателя роняет процесс. Обработка ошибок самой библиотекой от этого не меняется.
+      this.on('error', () => {});
     }
   }
   ws.WebSocket = ProxiedWebSocket;

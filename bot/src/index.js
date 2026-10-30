@@ -17,6 +17,7 @@ import { HttpInteractions } from './http-interactions.js';
 import { proxiedMakeRequest } from './proxy-rest.js';
 import { createHttpServer } from './http.js';
 import { Links } from './links.js';
+import { loginWithRetry } from './login.js';
 import { applySettings } from './settings.js';
 import { createSiteApi } from './site-api.js';
 import { MODULES } from './modules/index.js';
@@ -79,8 +80,12 @@ client.once(Events.ClientReady, async () => {
   // commands.hideFromPlayers = false: команды персонала видны всем в Discord,
   // а кто может ими пользоваться, решают роли в боте (roles.admin/moderator/support).
   if (cfg.commands.hideFromPlayers === false) commands = commands.map((c) => ({ ...c, default_member_permissions: null }));
-  await guild.commands.set(commands);
-  log.info(`зарегистрировано команд: ${commands.length}`);
+  try {
+    await guild.commands.set(commands);
+    log.info(`зарегистрировано команд: ${commands.length}`);
+  } catch (e) {
+    log.warn(`команды не зарегистрированы: ${e.message}`);
+  }
   for (const m of MODULES) {
     try {
       await m.init?.(ctx);
@@ -103,8 +108,6 @@ const server = createHttpServer({
 });
 server.listen(cfg.http.port, cfg.http.host, () => log.info(`HTTP: http://${cfg.http.host}:${cfg.http.port} (за nginx)`));
 
-await client.login(cfg.secrets.discordToken);
-
 const shutdown = async () => {
   log.info('остановка');
   server.close();
@@ -115,3 +118,7 @@ const shutdown = async () => {
 };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+// Сетевой сбой в обработчике не должен останавливать бота целиком.
+process.on('unhandledRejection', (e) => log.error(`необработанная ошибка: ${e?.stack ?? e}`));
+
+await loginWithRetry(client, cfg.secrets.discordToken, log);
