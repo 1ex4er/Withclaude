@@ -54,6 +54,7 @@ const CHANNEL_SLOTS = [
   { path: 'channels.memberLog', label: 'Входы/выходы в Discord' },
   { path: 'channels.killFeed', label: 'Килфид' },
   { path: 'channels.gameChat', label: 'Игровой чат' },
+  { path: 'channels.antiCheat', label: 'Анти-QE' },
   { path: 'tickets.categoryId', label: 'Категория для тикетов', types: [ChannelType.GuildCategory] },
 ];
 

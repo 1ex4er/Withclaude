@@ -1,4 +1,4 @@
-// Игровые логи в каналы: входы/выходы, убийства, игровой чат. Источник — ADM-лог через агента.
+// Игровые логи в каналы: входы/выходы, убийства, игровой чат, подозрения на qe/moonwalk/dropshot (мод BKO_AntiQE). Источник — ADM-лог через агента.
 // Пишутся и на основной сервер, и на серверы группировок, где выбран такой же канал (ctx.targets).
 // Сообщения копятся и отправляются пачками раз в 2 с, чтобы не упираться в лимиты Discord.
 
@@ -22,6 +22,8 @@ function format(ev) {
       return ['killFeed', `\`${ev.time}\` 💀 ${n(ev.name)} погиб${ev.cause ? ` (${escapeMd(ev.cause)})` : ''}`];
     case 'chat':
       return ['gameChat', `\`${ev.time}\` 💬 ${n(ev.name)}: ${escapeMd(ev.text)}`];
+    case 'anticheat':
+      return ['antiCheat', `\`${ev.time}\` ⚠️ ${n(ev.name)} (\`${ev.id}\`): ${escapeMd(ev.text)}`];
     default:
       return [null, null];
   }

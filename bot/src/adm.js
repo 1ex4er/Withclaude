@@ -6,11 +6,17 @@
 //   12:00:01 | Player "Ivan" (DEAD) (id=AbC123= pos=<...>) killed by Wolf
 //   12:00:01 | Player "Ivan" (DEAD) (id=AbC123= pos=<...>) died. Stats> Water: 0 Energy: 0 Bleed sources: 0
 //   12:00:01 | Chat("Ivan"(id=AbC123=)): привет
+//   12:00:01 | AntiQE("Ivan"(id=76561198000000000)): возможно qe или moonwalk/dropshot | 2 эпиз. за 3 мин: ... | pos <4512, 10321>  (мод BKO_AntiQE)
 
 const TIME = /^(\d{1,2}:\d{2}:\d{2})\s*\|\s*/;
 const NAME = '"((?:[^"\\\\]|\\\\.)*)"';
 
 const PATTERNS = [
+  {
+    type: 'anticheat',
+    re: new RegExp(`^AntiQE\\(${NAME}\\s*\\(id=([^\\s)]+)\\)\\):\\s?(.*)$`),
+    map: (m) => ({ name: m[1], id: m[2], text: m[3] }),
+  },
   {
     type: 'chat',
     re: new RegExp(`^Chat\\(${NAME}\\s*\\(id=([^\\s)]+)\\)\\):\\s?(.*)$`),

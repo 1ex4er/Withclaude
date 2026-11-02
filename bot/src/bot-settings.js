@@ -88,6 +88,7 @@ export const SECTIONS = [
       { path: 'channels.memberLog', label: 'Входы и выходы участников Discord', type: 'channel', hint: 'Кто зашёл (возраст аккаунта, приглашение) и кто вышел (сам, кик или бан)' },
       { path: 'channels.killFeed', label: 'Килфид', type: 'channel' },
       { path: 'channels.gameChat', label: 'Игровой чат', type: 'channel' },
+      { path: 'channels.antiCheat', label: 'Анти-QE (подозрения на qe/moonwalk/dropshot)', type: 'channel', hint: 'Мод BKO_AntiQE пишет в ADM-лог только повторяющиеся подозрительные серии' },
     ],
   },
   {

@@ -32,6 +32,7 @@ const DEFAULTS = {
     memberLog: '', // входы и выходы участников Discord-сервера (modules/memberlog.js)
     killFeed: '',
     gameChat: '',
+    antiCheat: '', // подозрения на qe/moonwalk/dropshot из ADM (мод BKO_AntiQE)
     applications: '',
     ticketLog: '',
     verifyReview: '',

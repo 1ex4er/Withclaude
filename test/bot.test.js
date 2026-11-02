@@ -31,6 +31,8 @@ test('ADM: вход, выход, PvP, смерть, чат; посторонни
   assert.deepEqual([pvp.killer, pvp.victim, pvp.weapon, pvp.distance], ['Petr', 'Ivan', 'M4A1', 42.5]);
   assert.equal(parseAdmLine('12:00:01 | Player "Ivan" (DEAD) (id=A= pos=<1, 2, 3>) killed by Wolf').cause, 'Wolf');
   assert.equal(parseAdmLine('12:00:01 | Chat("Ivan"(id=A=)): привет').text, 'привет');
+  const qe = parseAdmLine('12:00:01 | AntiQE("Ivan"(id=76561198000000001)): возможно qe | 2 эпиз. за 3 мин: стрейф ADADADAD за 2 с | pos <1, 2>');
+  assert.deepEqual([qe.type, qe.name, qe.id, qe.text.startsWith('возможно qe |')], ['anticheat', 'Ivan', '76561198000000001', true]);
   assert.equal(parseAdmLine('12:00:01 | Player "Ivan" (id=A= pos=<1, 2, 3>)[HP: 50] hit by Player "P"'), null);
   assert.equal(parseAdmLine('мусор'), null);
   assert.equal(newestAdm([{ file: 'a.ADM', mtime: 1 }, { file: 'b.RPT', mtime: 9 }, { file: 'c.ADM', mtime: 5 }]), 'c.ADM');
