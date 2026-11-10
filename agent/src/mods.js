@@ -244,9 +244,12 @@ export class ModManager {
   }
 
   // Установить новый мод по ID из Workshop. Новая папка сервером не занята — ставится сразу, даже на работающем.
-  install(id) {
+  // folder — своё имя папки (например, то, что уже стоит в списке модов после переезда); без него — по названию мода.
+  install(id, folder = null) {
     this.#requireSteam();
     if (typeof id !== 'string' || !WORKSHOP_ID.test(id)) throw new AgentError('bad_params', 'ID мода из Workshop — это 6–12 цифр');
+    if (folder !== null && (typeof folder !== 'string' || !MOD_FOLDER.test(folder))) throw new AgentError('bad_params', `Недопустимое имя папки: ${folder}`);
+    if (folder !== null && fs.existsSync(path.join(this.serverDir, folder))) throw new AgentError('exists', `Папка ${folder} уже есть на сервере`);
     const existing = this.#findById(id);
     if (existing) throw new AgentError('exists', `Мод уже установлен: ${existing}. Обновить его можно кнопкой «Обновить»`);
     if (this.jobs.some((j) => j.target === id && (j.status === 'queued' || j.status === 'running'))) {
@@ -258,11 +261,11 @@ export class ModManager {
       const ok = await this.#download([id], 3 * 60 * 60_000);
       if (!ok.has(id)) throw new Error('не скачался (проверь ID и вход в Steam у SteamCMD)');
       const meta = readMeta(this.#contentDir(id));
-      let folder = folderNameFor(meta.name, id);
-      if (fs.existsSync(path.join(this.serverDir, folder))) folder = folderNameFor(`${meta.name ?? ''} ${id}`, id);
-      this.#copy(id, folder, { force: true });
-      this.log.info(`мод ${id} установлен в ${folder}`);
-      return { folder, message: `установлен в ${folder}, включи его в списке модов` };
+      let target = folder ?? folderNameFor(meta.name, id);
+      if (!folder && fs.existsSync(path.join(this.serverDir, target))) target = folderNameFor(`${meta.name ?? ''} ${id}`, id);
+      this.#copy(id, target, { force: true });
+      this.log.info(`мод ${id} установлен в ${target}`);
+      return { folder: target, message: `установлен в ${target}, включи его в списке модов` };
     });
   }
 

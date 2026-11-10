@@ -61,6 +61,16 @@ test('install by Workshop ID: new folder, keys, then refused as already installe
   assert.throws(() => mods.install('12ab'), /6–12 цифр/);
 });
 
+test('install into a given folder name (the one already in the mod list after a move)', async () => {
+  const { serverDir, mods } = setup({ 2469798930: { name: 'STALKER: DayZone | Map Public', version: 'm1' } });
+  const job = mods.install('2469798930', '@STALKER DayZone  Map Public');
+  await settle(mods);
+  assert.equal(job.status, 'done', job.message);
+  assert.ok(fs.existsSync(path.join(serverDir, '@STALKER DayZone  Map Public', 'addons', 'a.pbo')));
+  assert.throws(() => mods.install('2469798931', '@STALKER DayZone  Map Public'), /уже есть/);
+  assert.throws(() => mods.install('2469798931', 'no-at'), /Недопустимое имя/);
+});
+
 test('a mod that does not download is an error job', async () => {
   const { mods, calls } = setup({});
   const job = mods.install('123456789');

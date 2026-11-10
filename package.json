@@ -1,6 +1,6 @@
 {
   "name": "blackout-dayz-control",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Управление DayZ-сервером Blackout с сайта: агент для Windows VDS + модуль для сайта",
   "type": "module",
