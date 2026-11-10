@@ -101,6 +101,11 @@ export function createActions({ server, rcon, files, lxFiles, lxModPrefix, logs,
       }
       return mods.update(MOD_LIST(p.folders, 'folders'));
     },
+    // Фоновые: ответ сразу, ход — в mods.jobs. Установка по ID из Workshop; обновление одного мода
+    // (сервер работает — скачивается сейчас, ставится при ближайшем рестарте).
+    'mods.install': (p) => mods.install(check.string(p.id, 'id', { max: 12 })),
+    'mods.updateOne': (p) => mods.updateOne(check.string(p.folder, 'folder', { max: 70 }), { serverRunning: async () => (await server.status()).running }),
+    'mods.jobs': () => ({ jobs: mods.jobsList(), pending: mods.pending(), steamcmd: mods.configured }),
 
     // --- Моды LX: только их папки конфигов и список установленных LX-модов ---
     'lx.mods': () =>

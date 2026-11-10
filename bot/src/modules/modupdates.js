@@ -69,7 +69,7 @@ export async function checkModUpdates(ctx, fetchImpl = steamFetch) {
     const lines = fresh.map((r) => `• [${r.name}](${workshopUrl(r.id)}) — в Workshop ${unix(r.workshopAt)}, на сервере ${unix(r.localAt)}`);
     await ctx.post('modLog', {
       embeds: [
-        embed('warn', '🧩 Обновились моды в Workshop', `${lines.join('\n')}\n\nОбнови их в панели хостинга («Управление модами» → «Обновить/Исправить») и перезапусти сервер, иначе игроков с новой версией не пустит.`.slice(0, 4000)),
+        embed('warn', '🧩 Обновились моды в Workshop', `${lines.join('\n')}\n\nАгент обновит их на ближайшем плановом рестарте. Срочно — кнопка «Обновить» у мода в админке сайта (/admin/server), иначе игроков с новой версией не пустит.`.slice(0, 4000)),
       ],
     });
     for (const r of fresh) notified.add(`${r.id}:${r.workshopAt}`);

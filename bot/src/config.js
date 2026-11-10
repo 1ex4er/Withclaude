@@ -37,7 +37,7 @@ const DEFAULTS = {
     ticketLog: '',
     verifyReview: '',
   },
-  status: { intervalSec: 60, maxPlayers: 60, connect: '109.248.4.96:2302' },
+  status: { intervalSec: 60, maxPlayers: 60, connect: '194.147.90.218:2302' },
   logs: { admFollow: true },
   tickets: {
     categoryId: '',

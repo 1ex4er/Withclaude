@@ -100,7 +100,17 @@ export async function runAgent(configPath) {
   if (!rcon.password) log.warn('пароль RCon не найден (beserver_x64.cfg или RCON_PASSWORD в .env) — RCon недоступен');
 
   const server = new ServerProcess({ cfg, state, rcon, log });
-  const mods = new ModManager({ serverDir: cfg.server.dir, steamcmd: cfg.steamcmd, steamUser: process.env.STEAM_USER, log });
+  const mods = new ModManager({ serverDir: cfg.server.dir, steamcmd: cfg.steamcmd, steamUser: process.env.STEAM_USER, log, state });
+  // Каждый запуск ставит обновления, скачанные пока сервер работал; плановый рестарт ещё и обновляет
+  // все включённые моды из Workshop (schedule.updateMods: false — выключить).
+  server.beforeSpawn = () => mods.applyPending();
+  if (mods.configured && cfg.schedule.updateMods !== false) {
+    server.beforeScheduledStart = () => {
+      const { mods: client, serverMods } = server.mods();
+      return mods.update(mods.workshopOnly([...client, ...serverMods]));
+    };
+  }
+  if (!mods.configured) log.warn('SteamCMD не настроен (steamcmd.path в config.json и STEAM_USER в .env) — моды из Workshop не обновляются');
 
   const hubs = new Map();
   const emitTo = (hubName, topic, data) => hubs.get(hubName)?.send({ type: 'event', topic, data });
@@ -132,7 +142,7 @@ export async function runAgent(configPath) {
     try {
       if (!params || typeof params !== 'object' || Array.isArray(params)) throw new AgentError('bad_params', 'params должен быть объектом');
       const result = await fn(params, actor, hub);
-      if (!/\.(status|info|list|tail|roots|players|mods)$/.test(action)) audit.write({ ...entry, ok: true });
+      if (!/\.(status|info|list|tail|roots|players|mods|jobs)$/.test(action)) audit.write({ ...entry, ok: true });
       return { ok: true, result: result ?? null };
     } catch (e) {
       const known = e instanceof AgentError;

@@ -257,6 +257,14 @@ export class ServerProcess extends EventEmitter {
       throw new AgentError('already_running', `Порт ${this.cfg.port} уже занят — сервер уже запущен, второй не запускаю`);
     }
     if (!fs.existsSync(this.exePath)) throw new AgentError('not_found', `Не найден ${this.exePath}`);
+    // Перед каждым запуском (ручной, рестарт, автоподъём): например, поставить скачанные обновления модов.
+    if (this.beforeSpawn) {
+      try {
+        await this.beforeSpawn();
+      } catch (e) {
+        this.log.error(`перед запуском сервера: ${e.message}`);
+      }
+    }
     const child = spawn(this.exePath, this.buildArgs(), {
       cwd: this.cfg.dir,
       detached: true,
@@ -490,7 +498,8 @@ export class ServerProcess extends EventEmitter {
     this.nextRestart = null;
     this.kickedAt = null;
     this.log.info('плановый рестарт');
-    await this.restart().catch((e) => this.log.error(`плановый рестарт не удался: ${e.message}`));
+    // beforeScheduledStart (agent.js) — обновление модов из Workshop, пока сервер остановлен.
+    await this.restart({ beforeStart: this.beforeScheduledStart }).catch((e) => this.log.error(`плановый рестарт не удался: ${e.message}`));
   }
 
   // Закрыть вход и отключить всех перед остановкой (сохранение мира делает #shutdown при остановке).
